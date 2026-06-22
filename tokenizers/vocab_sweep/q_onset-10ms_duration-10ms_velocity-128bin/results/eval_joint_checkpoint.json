@@ -1,0 +1,28 @@
+{
+  "status": "complete",
+  "source_type": "corpus",
+  "source_len": 115182,
+  "tokenizer_vocab_sizes": [
+    11644,
+    44156,
+    76924
+  ],
+  "files_processed": 115182,
+  "totals": {
+    "11644": {
+      "num_files": 115182,
+      "total_original_tokens": 2778022295,
+      "total_bpe_tokens": 2109630024
+    },
+    "44156": {
+      "num_files": 115182,
+      "total_original_tokens": 2778022295,
+      "total_bpe_tokens": 1389981235
+    },
+    "76924": {
+      "num_files": 115182,
+      "total_original_tokens": 2778022295,
+      "total_bpe_tokens": 1288952338
+    }
+  }
+}

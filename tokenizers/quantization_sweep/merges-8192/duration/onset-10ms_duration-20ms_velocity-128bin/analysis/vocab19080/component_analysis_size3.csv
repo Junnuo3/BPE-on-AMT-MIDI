@@ -1,0 +1,4 @@
+categories,vocab_count,corpus_count
+duration+pitch+time,896,66299256
+duration+instrument+pitch,707,50833353
+instrument+pitch+velocity,633,32790416

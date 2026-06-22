@@ -1,0 +1,16 @@
+{
+  "status": "complete",
+  "source_type": "corpus",
+  "source_len": 115182,
+  "tokenizer_vocab_sizes": [
+    109580
+  ],
+  "files_processed": 115182,
+  "totals": {
+    "109580": {
+      "num_files": 115182,
+      "total_original_tokens": 2778022295,
+      "total_bpe_tokens": 1597458732
+    }
+  }
+}

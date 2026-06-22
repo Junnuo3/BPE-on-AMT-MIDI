@@ -1,0 +1,125 @@
+{
+  "vocab_size": 19461,
+  "total_bpe_tokens": 1258210078,
+  "num_merged_tokens": 8192,
+  "average_bpe_token_length": 1.9107,
+  "most_common_bpe_tokens": [
+    {
+      "original_tokens": "<time-9999> <duration-21>",
+      "corpus_count": 3305241
+    },
+    {
+      "original_tokens": "<time-9999> <duration-19>",
+      "corpus_count": 3200517
+    },
+    {
+      "original_tokens": "<time-9999> <duration-12>",
+      "corpus_count": 3170064
+    },
+    {
+      "original_tokens": "<time-9999> <duration-10>",
+      "corpus_count": 3164494
+    },
+    {
+      "original_tokens": "<time-9999> <duration-14>",
+      "corpus_count": 3121010
+    },
+    {
+      "original_tokens": "<time-9999> <duration-16>",
+      "corpus_count": 3116105
+    },
+    {
+      "original_tokens": "<time-9999> <duration-20>",
+      "corpus_count": 3101853
+    },
+    {
+      "original_tokens": "<time-9999> <duration-22>",
+      "corpus_count": 3097492
+    },
+    {
+      "original_tokens": "<time-9999> <duration-18>",
+      "corpus_count": 3027836
+    },
+    {
+      "original_tokens": "<time-9999> <duration-15>",
+      "corpus_count": 3017820
+    }
+  ],
+  "most_common_categories": [
+    {
+      "category": "instrument",
+      "merged_vocab_count": 5373,
+      "corpus_weighted_count": 554396959
+    },
+    {
+      "category": "velocity",
+      "merged_vocab_count": 5372,
+      "corpus_weighted_count": 554396959
+    },
+    {
+      "category": "pitch",
+      "merged_vocab_count": 7066,
+      "corpus_weighted_count": 496967966
+    },
+    {
+      "category": "duration",
+      "merged_vocab_count": 4959,
+      "corpus_weighted_count": 427543936
+    },
+    {
+      "category": "time",
+      "merged_vocab_count": 3141,
+      "corpus_weighted_count": 334543256
+    }
+  ],
+  "component_analysis": {
+    "2": [
+      {
+        "categories": "instrument+velocity",
+        "vocab_count": 722,
+        "corpus_count": 184187353
+      },
+      {
+        "categories": "duration+time",
+        "vocab_count": 404,
+        "corpus_count": 164897945
+      },
+      {
+        "categories": "duration+pitch",
+        "vocab_count": 990,
+        "corpus_count": 43412479
+      },
+      {
+        "categories": "instrument+pitch",
+        "vocab_count": 1,
+        "corpus_count": 0
+      }
+    ],
+    "3": [
+      {
+        "categories": "instrument+pitch+velocity",
+        "vocab_count": 2510,
+        "corpus_count": 234321975
+      },
+      {
+        "categories": "duration+pitch+time",
+        "vocab_count": 1425,
+        "corpus_count": 83345881
+      }
+    ],
+    "4": [
+      {
+        "categories": "duration+instrument+pitch+velocity",
+        "vocab_count": 828,
+        "corpus_count": 49588201
+      }
+    ],
+    "5": [
+      {
+        "categories": "duration+instrument+pitch+time+velocity",
+        "vocab_count": 1312,
+        "corpus_count": 86299430
+      }
+    ]
+  }
+}

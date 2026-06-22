@@ -1,0 +1,14 @@
+{
+  "base_alphabet_size": 11321,
+  "num_special_tokens": 4,
+  "vocab_sizes": [
+    19517
+  ],
+  "num_files": 116189,
+  "num_corpus_strings": 115277,
+  "limit_files": null,
+  "onset_ms": 10.0,
+  "dur_ms": 10.0,
+  "vel_bins": 64,
+  "onset_standalone": true
+}

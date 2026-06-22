@@ -2,9 +2,7 @@
 Evaluate BPE compression on AMT MIDI sequences.
 
 Usage:
-    python bpe/scripts/evaluate_bpe.py --dataset dataset/lmd_matched --out outputs
-Resumable — re-run to continue from the last checkpoint.
-Use --force-reeval to start fresh.
+    python bpe/scripts/evaluate_bpe.py
 """
 
 import sys
@@ -13,8 +11,19 @@ import argparse
 import json
 import csv
 import glob
+import itertools
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+_SCRIPTS_DIR     = os.path.dirname(os.path.abspath(__file__))
+_BPE_ROOT        = os.path.dirname(_SCRIPTS_DIR)
+_REPO_ROOT       = os.path.dirname(_BPE_ROOT)
+_DEFAULT_DATASET = os.path.join(_REPO_ROOT, "dataset", "lmd_matched")
+_DEFAULT_OUT          = os.path.join(_BPE_ROOT, "tokenizers", "vocab_sweep",
+                                     "q_onset-10ms_duration-10ms_velocity-128bin")
+_DEFAULT_OUT_NO_ONSET = os.path.join(_BPE_ROOT, "tokenizers", "merge_constraints",
+                                     "no_onset_merge", "merges-8192")
+_DEFAULT_ANT_ROOT     = os.path.join(_BPE_ROOT, "tokenizers", "anticipation")
+
+sys.path.insert(0, os.path.join(_SCRIPTS_DIR, "..", "src"))
 
 from tqdm import tqdm
 from tokenizers import Tokenizer
@@ -82,15 +91,39 @@ def _load_joint_ckpt(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--dataset", default="dataset/lmd_matched")
-    p.add_argument("--out", default="outputs")
-    p.add_argument("--limit-files", type=int, default=None)
-    p.add_argument("--force-reeval", action="store_true")
-    return p.parse_args()
+    p.add_argument("--dataset",    default=_DEFAULT_DATASET)
+    p.add_argument("--out",        default=None)
+    p.add_argument("--onset-ms",   type=float, default=10.0)
+    p.add_argument("--dur-ms",     type=float, default=10.0)
+    p.add_argument("--vel-bins",   type=int,   default=128)
+    p.add_argument("--limit-files",      type=int, default=None)
+    p.add_argument("--force-reeval",     action="store_true")
+    p.add_argument("--onset-standalone", action="store_true",
+                   help="Corpus was built with onset-standalone mode; adjusts "
+                        "original-token counting accordingly")
+    p.add_argument("--augment",          type=int, default=0,
+                   help="Anticipation augmentation passes (>0 = anticipation mode; "
+                        "uses tokenizers/anticipation/ as default --out)")
+    args = p.parse_args()
+    if args.out is None:
+        if args.augment > 0:
+            onset = args.onset_ms; dur = args.dur_ms; vel = args.vel_bins
+            config = f"onset-{onset:g}ms_duration-{dur:g}ms_velocity-{vel}bin"
+            args.out = os.path.join(_DEFAULT_ANT_ROOT, "velocity", config)
+        elif args.onset_standalone:
+            args.out = _DEFAULT_OUT_NO_ONSET
+        else:
+            args.out = _DEFAULT_OUT
+    return args
 
 
 def main() -> None:
     args = parse_args()
+
+    onset_ms         = args.onset_ms
+    dur_ms           = args.dur_ms
+    vel_bins         = args.vel_bins
+    onset_standalone = args.onset_standalone
 
     results_dir = os.path.join(args.out, "results")
     os.makedirs(results_dir, exist_ok=True)
@@ -191,7 +224,7 @@ def main() -> None:
 
         _save_joint_ckpt(results_dir, _ckpt_payload(start_idx))
 
-        remaining        = source_items[start_idx:]
+        remaining        = itertools.islice(source_items, start_idx, None)
         batch_texts:      list[str] = []
         batch_orig_lens:  list[int] = []
         next_abs_idx:     int       = start_idx
@@ -211,11 +244,19 @@ def main() -> None:
         with tqdm(remaining, initial=start_idx, total=source_len,
                   desc="files", unit="file") as bar:
             for rel_idx, item in enumerate(bar):
-                text = item if source_type == "corpus" else serialize_midi(item, base_token_to_char)
+                if source_type == "corpus":
+                    text = item
+                else:
+                    text = serialize_midi(item, base_token_to_char,
+                                         onset_ms=onset_ms,
+                                         dur_ms=dur_ms,
+                                         vel_bins=vel_bins,
+                                         onset_standalone=onset_standalone)
                 next_abs_idx = start_idx + rel_idx + 1
                 if text is not None:
                     batch_texts.append(text)
-                    batch_orig_lens.append(len(text.split()) * 5)
+                    # sum of word lengths = total AMT base tokens regardless of onset_standalone
+                    batch_orig_lens.append(sum(len(w) for w in text.split()))
 
                 if len(batch_texts) >= EVAL_BATCH_SIZE:
                     flush_batch()

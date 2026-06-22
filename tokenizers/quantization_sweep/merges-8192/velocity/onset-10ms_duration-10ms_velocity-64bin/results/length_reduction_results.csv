@@ -1,0 +1,2 @@
+vocab_size,num_files,total_original_tokens,total_bpe_tokens,reduction_ratio,compression_factor
+19517,115277,2780005890,1540395848,0.5540980519289476,1.8047347333540722

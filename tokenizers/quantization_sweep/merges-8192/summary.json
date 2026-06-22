@@ -1,0 +1,67 @@
+[
+  {
+    "factor": "duration",
+    "sweep_value": 1,
+    "onset_ms": 10,
+    "dur_ms": 1,
+    "vel_bins": 128,
+    "vocab_size": 28577,
+    "num_files": 115355,
+    "total_original_tokens": 2783415025,
+    "total_bpe_tokens": 1680043258,
+    "reduction_ratio": 0.6035906406016472,
+    "compression_factor": 1.6567519983464616
+  },
+  {
+    "factor": "duration",
+    "sweep_value": 2,
+    "onset_ms": 10,
+    "dur_ms": 2,
+    "vel_bins": 128,
+    "vocab_size": 23579,
+    "num_files": 115355,
+    "total_original_tokens": 2783415025,
+    "total_bpe_tokens": 1659787031,
+    "reduction_ratio": 0.596313167850346,
+    "compression_factor": 1.6769711854677096
+  },
+  {
+    "factor": "duration",
+    "sweep_value": 5,
+    "onset_ms": 10,
+    "dur_ms": 5,
+    "vel_bins": 128,
+    "vocab_size": 20580,
+    "num_files": 115355,
+    "total_original_tokens": 2783415025,
+    "total_bpe_tokens": 1634227904,
+    "reduction_ratio": 0.5871305174836441,
+    "compression_factor": 1.703198812226376
+  },
+  {
+    "factor": "duration",
+    "sweep_value": 10,
+    "onset_ms": 10,
+    "dur_ms": 10,
+    "vel_bins": 128,
+    "vocab_size": 19580,
+    "num_files": 115355,
+    "total_original_tokens": 2783415025,
+    "total_bpe_tokens": 1600230887,
+    "reduction_ratio": 0.5749163788465215,
+    "compression_factor": 1.739383389992022
+  },
+  {
+    "factor": "duration",
+    "sweep_value": 20,
+    "onset_ms": 10,
+    "dur_ms": 20,
+    "vel_bins": 128,
+    "vocab_size": 19080,
+    "num_files": 115355,
+    "total_original_tokens": 2783415025,
+    "total_bpe_tokens": 1531584701,
+    "reduction_ratio": 0.5502538023412444,
+    "compression_factor": 1.8173431891704435
+  }
+]

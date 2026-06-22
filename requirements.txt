@@ -2,3 +2,6 @@ pretty_midi
 tqdm
 tokenizers>=0.21.0
 matplotlib
+pyfluidsynth
+# system dep (not pip): conda install -c conda-forge fluidsynth
+#                    or: sudo apt-get install -y fluidsynth libfluidsynth-dev

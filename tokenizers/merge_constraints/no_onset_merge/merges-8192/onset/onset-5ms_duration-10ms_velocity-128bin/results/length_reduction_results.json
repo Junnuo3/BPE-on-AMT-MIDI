@@ -1,0 +1,12 @@
+[
+  {
+    "requested_vocab_size": 29581,
+    "status": "complete",
+    "vocab_size": 29581,
+    "num_files": 115182,
+    "total_original_tokens": 2778022295,
+    "total_bpe_tokens": 1860440732,
+    "reduction_ratio": 0.6696997123991764,
+    "compression_factor": 1.4932065543488648
+  }
+]

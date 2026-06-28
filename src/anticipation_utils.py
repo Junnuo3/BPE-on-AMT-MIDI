@@ -214,12 +214,12 @@ def augmentation_spec(
     delta_steps: int,
     rng: np.random.Generator,
 ) -> tuple[str, dict]:
-    """Return the augmentation (mode, kwargs) for pass k in the 10-pass schedule.
+    """Return the augmentation (mode, kwargs) for a given k.
 
-    k%10 == 0 → no control (pure autoregressive)
-    k%10 == 1 → span-based control
-    k%10 2..5 → random-fraction control
-    k%10 6..9 → instrument-based control
+    k == 0      → no control (pure autoregressive)
+    k%10 == 1   → span-based control
+    k%10 in 2-5 → random-fraction control
+    k%10 in 6-9 → instrument-based control
     """
     m = k % 10
     if m == 0:

@@ -76,6 +76,22 @@ def _auto_train_cfg(tokenizer_path: str) -> dict:
     return {}
 
 
+def _find_resume_checkpoint(ckpt_dir: str):
+    """Return (path, global_step, epoch) of the latest resumable checkpoint, or (None, 0, 0)."""
+    state_files = glob.glob(os.path.join(ckpt_dir, "*/training_state.json"))
+    if not state_files:
+        return None, 0, 0
+    best_path, best_step, best_epoch = None, -1, 0
+    for sf in state_files:
+        with open(sf) as f:
+            s = json.load(f)
+        if s.get("global_step", 0) > best_step:
+            best_step  = s["global_step"]
+            best_epoch = s.get("epoch", 0)
+            best_path  = os.path.dirname(sf)
+    return best_path, best_step, best_epoch
+
+
 
 class AMTChunkDataset:
     """Static dataset wrapping a pre-built chunks.npy (baseline mode)."""
@@ -97,7 +113,9 @@ class AMTChunkDataset:
 class AMTStreamDataset(_IterableDataset):
     """On-the-fly anticipation augmentation dataset.
 
-    10-pass schedule: pass 0 → [AUTOREGRESS], passes 1-9 → [ANTICIPATE] with control extraction.
+    Each file is processed once per epoch. With probability ant_prob it receives
+    anticipation augmentation (strategy sampled uniformly from span/random/instrument);
+    otherwise it is autoregressive. Epochs count original-dataset passes.
     """
 
     def __init__(
@@ -111,7 +129,7 @@ class AMTStreamDataset(_IterableDataset):
         anticipate_id: int,
         id_map: np.ndarray,     # amt_bpe_id → smollm2_extended_id
         window_size: int = 4096,
-        augment_passes: int = 10,
+        ant_prob: float = 0.9,  # probability of anticipation augmentation per file
         onset_ms: float = 10.0,
         dur_ms: float = 10.0,
         vel_bins: int = 32,
@@ -125,7 +143,7 @@ class AMTStreamDataset(_IterableDataset):
         self.anticipate_id  = anticipate_id
         self.id_map         = id_map
         self.window_size    = window_size
-        self.augment_passes = augment_passes
+        self.ant_prob       = ant_prob
         self.onset_ms       = onset_ms
         self.dur_ms         = dur_ms
         self.vel_bins       = vel_bins
@@ -145,18 +163,20 @@ class AMTStreamDataset(_IterableDataset):
         import torch
         from bpe_utils import serialize_midi_anticipation
 
-        tasks = [(p, k)
-                 for p in self.midi_files
-                 for k in range(self.augment_passes)]
+        n         = len(self.midi_files)
+        rng_epoch = np.random.default_rng()  # fresh each epoch
 
-        # Shuffle each epoch; per-file seeds stay deterministic for reproducibility.
-        rng_order = np.random.default_rng()
-        idx_order = rng_order.permutation(len(tasks)).tolist()
-        tasks     = [tasks[i] for i in idx_order]
-        tasks     = list(self._iter_shard(tasks))
+        # Draw per-file augmentation decisions for this epoch.
+        # k=0 → autoregressive; k∈[1,9] → anticipation strategy (span/random/instrument)
+        use_ant = rng_epoch.random(n) < self.ant_prob
+        k_vals  = np.where(use_ant, rng_epoch.integers(1, 10, size=n), 0)
+
+        perm  = rng_epoch.permutation(n)
+        tasks = [(self.midi_files[i], int(k_vals[i])) for i in perm]
+        tasks = list(self._iter_shard(tasks))
 
         for path, k in tasks:
-            seed = abs(hash(path)) % (2 ** 31) ^ (k * 1_000_003)
+            seed = abs(hash(path)) % (2 ** 31)
             rng  = np.random.default_rng(seed)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -190,8 +210,16 @@ class AMTStreamDataset(_IterableDataset):
 
 
 
-def build_model_and_tokenizer(smollm2_model_id: str, amt_tok_path: str, verbose: bool = True) -> tuple:
+def build_model_and_tokenizer(
+    smollm2_model_id: str,
+    amt_tok_path: str,
+    verbose: bool = True,
+    resume_from: str | None = None,
+) -> tuple:
     """Load SmolLM2 and extend its vocab with AMT-BPE tokens.
+
+    When resume_from is set, loads model+tokenizer from that checkpoint directory
+    (vocab already extended) instead of from HuggingFace.
 
     Returns (model, hf_tokenizer, id_offset, id_map, amt_tokenizer).
     id_map[amt_bpe_id] = smollm2_extended_id.
@@ -199,21 +227,29 @@ def build_model_and_tokenizer(smollm2_model_id: str, amt_tok_path: str, verbose:
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from tokenizers import Tokenizer as HFTokenizer
 
+    src = resume_from if resume_from else smollm2_model_id
     if verbose:
-        print(f"Loading SmolLM2: {smollm2_model_id}")
-    hf_tokenizer = AutoTokenizer.from_pretrained(smollm2_model_id)
-    model        = AutoModelForCausalLM.from_pretrained(smollm2_model_id)
+        label = "Resuming model from" if resume_from else "Loading SmolLM2"
+        print(f"{label}: {src}")
 
-    id_offset = len(hf_tokenizer)
-    if verbose:
-        print(f"  SmolLM2 vocab size: {id_offset:,}")
+    hf_tokenizer = AutoTokenizer.from_pretrained(src)
+    model        = AutoModelForCausalLM.from_pretrained(src)
 
     amt_tokenizer     = HFTokenizer.from_file(amt_tok_path)
     amt_vocab         = amt_tokenizer.get_vocab()
     amt_tokens_sorted = sorted(amt_vocab, key=amt_vocab.__getitem__)
 
-    n_added = hf_tokenizer.add_tokens(amt_tokens_sorted)
-    model.resize_token_embeddings(len(hf_tokenizer))
+    if resume_from:
+        # Tokenizer already has AMT tokens; just build the id_map.
+        id_offset = len(hf_tokenizer) - len(amt_tokens_sorted)
+    else:
+        id_offset = len(hf_tokenizer)
+        if verbose:
+            print(f"  SmolLM2 vocab size: {id_offset:,}")
+        n_added = hf_tokenizer.add_tokens(amt_tokens_sorted)
+        model.resize_token_embeddings(len(hf_tokenizer))
+        if verbose:
+            print(f"  AMT-BPE tokens added: {n_added:,}  (offset {id_offset:,})")
 
     id_map = np.array(
         [hf_tokenizer.convert_tokens_to_ids(tok) for tok in amt_tokens_sorted],
@@ -221,7 +257,6 @@ def build_model_and_tokenizer(smollm2_model_id: str, amt_tok_path: str, verbose:
     )
 
     if verbose:
-        print(f"  AMT-BPE tokens added: {n_added:,}  (offset {id_offset:,})")
         print(f"  Extended vocab size: {len(hf_tokenizer):,}")
     return model, hf_tokenizer, id_offset, id_map, amt_tokenizer
 
@@ -242,8 +277,9 @@ def parse_args() -> argparse.Namespace:
                         "Auto-detected from tokenizer dir sibling if omitted.")
     p.add_argument("--dataset",     default=os.path.join(_REPO_ROOT, "dataset", "lmd_matched"),
                    help="MIDI dataset directory (streaming mode).")
-    p.add_argument("--augment-passes", type=int, default=10,
-                   help="Augmentation passes per MIDI file per epoch (streaming mode).")
+    p.add_argument("--ant-prob", type=float, default=0.9,
+                   help="Per-file probability of anticipation augmentation (streaming mode). "
+                        "Complement uses autoregressive mode. Epochs count original-file passes.")
     p.add_argument("--window",      type=int, default=2048,
                    help="Sequence window size in tokens.")
     p.add_argument("--model",       default="HuggingFaceTB/SmolLM2-135M")
@@ -263,7 +299,7 @@ def parse_args() -> argparse.Namespace:
                         "Used to auto-compute --grad-accum when not explicitly set.")
     p.add_argument("--lr",          type=float, default=2e-4)
     p.add_argument("--warmup-steps", type=int,  default=200)
-    p.add_argument("--save-steps",   type=int,  default=500)
+    p.add_argument("--save-steps",   type=int,  default=200)
     p.add_argument("--fp16",         action="store_true", default=False)
     p.add_argument("--no-fp16",      dest="fp16", action="store_false")
     p.add_argument("--bf16",         action="store_true", default=True,
@@ -343,9 +379,15 @@ def main() -> None:
     if is_main:
         print(f"Run dir: {run_dir}")
 
+    resume_ckpt, resume_step, resume_epoch = _find_resume_checkpoint(ckpt_dir)
+    if is_main and resume_ckpt:
+        print(f"Resuming from checkpoint: {resume_ckpt}  "
+              f"(step={resume_step}, epoch={resume_epoch})")
+
     # model
     model, hf_tokenizer, id_offset, id_map, amt_tokenizer = build_model_and_tokenizer(
         args.model, tokenizer_path, verbose=is_main,
+        resume_from=resume_ckpt,
     )
 
     # Save config for inference (rank 0 only)
@@ -405,7 +447,7 @@ def main() -> None:
             anticipate_id  = anticipate_id,
             id_map         = id_map,
             window_size    = args.window,
-            augment_passes = args.augment_passes,
+            ant_prob       = args.ant_prob,
             onset_ms       = onset_ms,
             dur_ms         = dur_ms,
             vel_bins       = vel_bins,
@@ -416,8 +458,8 @@ def main() -> None:
             num_workers=args.workers,
             pin_memory=torch.cuda.is_available(),
         )
-        # rough estimate: ~5000 BPE tokens per file per pass on average
-        n_chunks_est = len(midi_files) * args.augment_passes * 5_000 // args.window
+        # rough estimate: ~5000 BPE tokens per file per epoch on average
+        n_chunks_est = len(midi_files) * 5_000 // args.window
         total_steps  = n_chunks_est // (args.batch_size * world_size) * args.epochs // args.grad_accum
         if is_main:
             print(f"Estimated chunks/epoch: {n_chunks_est:,}  "
@@ -465,6 +507,23 @@ def main() -> None:
     )
     scaler = torch.amp.GradScaler("cuda", enabled=use_fp16)  # bf16 never needs scaling
 
+    if resume_ckpt:
+        opt_path = os.path.join(resume_ckpt, "optimizer.pt")
+        sch_path = os.path.join(resume_ckpt, "scheduler.pt")
+        if os.path.exists(opt_path) and os.path.exists(sch_path):
+            optimizer.load_state_dict(
+                torch.load(opt_path, map_location=device, weights_only=True))
+            scheduler.load_state_dict(
+                torch.load(sch_path, map_location=device, weights_only=True))
+            if is_main:
+                print(f"Restored optimizer and scheduler states.")
+        else:
+            # Advance scheduler to match resume_step; optimizer moments are reset.
+            for _ in range(resume_step):
+                scheduler.step()
+            if is_main:
+                print(f"Advanced scheduler to step {resume_step} (no saved optimizer state).")
+
     # W&B (rank 0 only)
     if is_main and args.wandb:
         import wandb
@@ -483,7 +542,7 @@ def main() -> None:
                 "max_steps":      max_steps,
                 "epochs":         args.epochs,
                 "streaming":      streaming,
-                "augment_passes": args.augment_passes if streaming else None,
+                "ant_prob":       args.ant_prob if streaming else None,
             },
         )
 
@@ -493,10 +552,10 @@ def main() -> None:
         print(f"\nFinetuning [{mode_label}]  max_steps={max_steps}  "
               f"batch={args.batch_size}  grad_accum={args.grad_accum}  lr={args.lr}")
 
-    global_step  = 0
-    epoch        = 0
+    global_step  = resume_step
+    epoch        = resume_epoch
     last_ckpt    = None  # path of the previous rolling checkpoint (deleted on next save)
-    pbar = _tqdm(total=max_steps, desc="Training", unit="step",
+    pbar = _tqdm(total=max_steps, initial=resume_step, desc="Training", unit="step",
                  dynamic_ncols=True, disable=not is_main)
 
     while global_step < max_steps and epoch < args.epochs:
@@ -528,7 +587,7 @@ def main() -> None:
 
                 avg    = run_loss / (step + 1)
                 lr_now = scheduler.get_last_lr()[0]
-                pbar.set_postfix(loss=f"{avg:.4f}", lr=f"{lr_now:.2e}", pass_=epoch + 1)
+                pbar.set_postfix(loss=f"{avg:.4f}", lr=f"{lr_now:.2e}")
                 pbar.update(1)
 
                 if is_main and args.wandb:
@@ -544,6 +603,10 @@ def main() -> None:
                     ckpt = os.path.join(ckpt_dir, f"step_{global_step}")
                     raw_model.save_pretrained(ckpt)
                     hf_tokenizer.save_pretrained(ckpt)
+                    torch.save(optimizer.state_dict(), os.path.join(ckpt, "optimizer.pt"))
+                    torch.save(scheduler.state_dict(), os.path.join(ckpt, "scheduler.pt"))
+                    with open(os.path.join(ckpt, "training_state.json"), "w") as f:
+                        json.dump({"global_step": global_step, "epoch": epoch}, f)
                     pbar.write(f"  Checkpoint → {ckpt}")
                     if last_ckpt is not None and os.path.isdir(last_ckpt):
                         import shutil
@@ -560,6 +623,10 @@ def main() -> None:
             ckpt = os.path.join(ckpt_dir, f"pass_{epoch}")
             raw_model.save_pretrained(ckpt)
             hf_tokenizer.save_pretrained(ckpt)
+            torch.save(optimizer.state_dict(), os.path.join(ckpt, "optimizer.pt"))
+            torch.save(scheduler.state_dict(), os.path.join(ckpt, "scheduler.pt"))
+            with open(os.path.join(ckpt, "training_state.json"), "w") as f:
+                json.dump({"global_step": global_step, "epoch": epoch}, f)
             if last_ckpt is not None and os.path.isdir(last_ckpt):
                 import shutil
                 shutil.rmtree(last_ckpt)

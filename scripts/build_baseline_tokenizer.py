@@ -13,7 +13,7 @@ import sys
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _BPE_ROOT    = os.path.dirname(_SCRIPTS_DIR)
 _DEFAULT_OUT = os.path.join(_BPE_ROOT, "tokenizers", "vocab_sweep",
-                            "q_onset-10ms_duration-10ms_velocity-128bin")
+                            "q_onset-10ms_duration-10ms_velocity-32bin")
 
 sys.path.insert(0, os.path.join(_SCRIPTS_DIR, "..", "src"))
 

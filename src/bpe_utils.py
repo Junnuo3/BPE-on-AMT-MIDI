@@ -58,8 +58,8 @@ def _worker_scan(args: tuple) -> frozenset:
     import warnings as _w
     with _w.catch_warnings():
         _w.simplefilter("ignore")
-        notes = midi_to_amt(path, onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins)
-    return frozenset(tok for note in notes for tok in note)
+        chunks = midi_to_amt(path, onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins)
+    return frozenset(tok for chunk in chunks for note in chunk for tok in note)
 
 
 _SER_B2C:    dict[str, str] = {}
@@ -72,7 +72,7 @@ def _init_serialize_worker(b2c_items: list, params: tuple) -> None:
     _SER_PARAMS = params
 
 
-def _worker_serialize(path: str) -> "str | None":
+def _worker_serialize(path: str) -> "list[str]":
     onset_ms, dur_ms, vel_bins, onset_standalone = _SER_PARAMS
     import warnings as _w
     with _w.catch_warnings():
@@ -100,7 +100,7 @@ def _init_anticipation_worker(
     _ANT_PARAMS    = params
 
 
-def _worker_serialize_anticipation(args: tuple) -> "str | None":
+def _worker_serialize_anticipation(args: tuple) -> "list[str]":
     """Worker: serialize one (path, k) pair for anticipation corpus."""
     path, k = args
     onset_ms, dur_ms, vel_bins = _ANT_PARAMS
@@ -265,9 +265,10 @@ def build_mapping_resumable(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 for rel_idx, path in enumerate(bar):
-                    for note in midi_to_amt(path, onset_ms=onset_ms,
-                                            dur_ms=dur_ms, vel_bins=vel_bins):
-                        observed.update(note)
+                    for chunk in midi_to_amt(path, onset_ms=onset_ms,
+                                             dur_ms=dur_ms, vel_bins=vel_bins):
+                        for note in chunk:
+                            observed.update(note)
                     abs_idx = start_idx + rel_idx + 1
                     if abs_idx % checkpoint_interval == 0:
                         _save_vocab_ckpt(ckpt_path, fingerprint, abs_idx, observed)
@@ -428,8 +429,8 @@ def serialize_midi_resumable(
                           desc="  serialising", unit="file", leave=False) as bar:
                     for batch_start in range(0, len(remaining), batch_size):
                         batch = remaining[batch_start:batch_start + batch_size]
-                        for text in executor.map(_worker_serialize, batch, chunksize=16):
-                            if text is not None:
+                        for texts in executor.map(_worker_serialize, batch, chunksize=16):
+                            for text in texts:
                                 f_out.write(text + "\n")
                                 lines_written += 1
                         abs_idx = start_idx + batch_start + len(batch)
@@ -443,11 +444,11 @@ def serialize_midi_resumable(
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     for rel_idx, path in enumerate(bar):
-                        text = serialize_midi(path, base_token_to_char,
-                                             onset_ms=onset_ms, dur_ms=dur_ms,
-                                             vel_bins=vel_bins,
-                                             onset_standalone=onset_standalone)
-                        if text is not None:
+                        texts = serialize_midi(path, base_token_to_char,
+                                              onset_ms=onset_ms, dur_ms=dur_ms,
+                                              vel_bins=vel_bins,
+                                              onset_standalone=onset_standalone)
+                        for text in texts:
                             f_out.write(text + "\n")
                             lines_written += 1
                         abs_idx = start_idx + rel_idx + 1
@@ -481,21 +482,19 @@ def stream_anticipation_corpus(
             initializer=_init_anticipation_worker,
             initargs=(list(event_b2c.items()), list(ctrl_b2c.items()), params),
         ) as executor:
-            for text in executor.map(_worker_serialize_anticipation, tasks, chunksize=16):
-                if text is not None:
-                    yield text
+            for texts in executor.map(_worker_serialize_anticipation, tasks, chunksize=16):
+                yield from texts
     else:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             for path, k in tasks:
                 seed = abs(hash(path)) % (2 ** 31) ^ (k * 1_000_003)
                 rng  = np.random.default_rng(seed)
-                text = serialize_midi_anticipation(
+                texts = serialize_midi_anticipation(
                     path, event_b2c, ctrl_b2c, k, rng,
                     onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins,
                 )
-                if text is not None:
-                    yield text
+                yield from texts
 
 
 def load_corpus_cache(fingerprint: str, cache_dir: str) -> "CorpusFile | None":
@@ -532,28 +531,33 @@ def serialize_midi(
     dur_ms:   float = 10.0,
     vel_bins: int   = 128,
     onset_standalone: bool = False,
-) -> str | None:
-    """Serialize a MIDI to space-separated 5-char note words. Returns None if invalid.
+) -> list[str]:
+    """Serialize a MIDI to a list of space-separated note-word strings, one per 100-second chunk.
 
+    Returns an empty list if the file is invalid or any token is out-of-vocabulary.
     With onset_standalone=True each note becomes two words (onset + 4-char body),
     preventing BPE from merging across the onset boundary.
     """
-    notes = midi_to_amt(midi_path, onset_ms=onset_ms,
-                        dur_ms=dur_ms, vel_bins=vel_bins)
-    if not notes:
-        return None
-    words: list[str] = []
-    for note in notes:
-        try:
-            chars = [base_token_to_char[tok] for tok in note]
-        except KeyError:
-            return None
-        if onset_standalone:
-            words.append(chars[0])
-            words.append("".join(chars[1:]))
-        else:
-            words.append("".join(chars))
-    return " ".join(words)
+    chunks = midi_to_amt(midi_path, onset_ms=onset_ms,
+                         dur_ms=dur_ms, vel_bins=vel_bins)
+    if not chunks:
+        return []
+    result: list[str] = []
+    for notes in chunks:
+        words: list[str] = []
+        for note in notes:
+            try:
+                chars = [base_token_to_char[tok] for tok in note]
+            except KeyError:
+                return []
+            if onset_standalone:
+                words.append(chars[0])
+                words.append("".join(chars[1:]))
+            else:
+                words.append("".join(chars))
+        if words:
+            result.append(" ".join(words))
+    return result
 
 
 def serialize_midi_anticipation(
@@ -565,36 +569,43 @@ def serialize_midi_anticipation(
     onset_ms: float = 10.0,
     dur_ms:   float = 10.0,
     vel_bins: int   = 128,
-) -> str | None:
-    """Serialize a MIDI with anticipation augmentation pass k. Returns None if invalid.
+) -> list[str]:
+    """Serialize a MIDI with anticipation augmentation pass k, one string per 100-second chunk.
 
+    Returns an empty list if the file is invalid or any token is out-of-vocabulary.
     Event notes → joined event PUA chars; ctrl notes → joined ctrl PUA chars;
     [SEPARATOR] and [REST] are emitted as literal strings.
     """
-    notes = midi_to_amt(midi_path, onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins)
-    if not notes:
-        return None
+    chunks = midi_to_amt(midi_path, onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins)
+    if not chunks:
+        return []
 
-    instruments = list({int(n[3][12:-1]) for n in notes})
     onset_steps_per_sec = 1000.0 / onset_ms
     delta_steps = max(1, int(round(5.0 * onset_steps_per_sec)))
 
-    mode, kwargs = augmentation_spec(k, notes, instruments, delta_steps, rng)
-    items = build_sequence(notes, mode, rng, onset_ms=onset_ms, **kwargs)
+    result: list[str] = []
+    for notes in chunks:
+        instruments = list({int(n[3][12:-1]) for n in notes})
+        mode, kwargs = augmentation_spec(k, notes, instruments, delta_steps, rng)
+        items = build_sequence(notes, mode, rng, onset_ms=onset_ms, **kwargs)
 
-    words: list[str] = []
-    for tokens, is_ctrl in items:
-        if tokens == [REST]:
-            words.append(REST)
-        elif tokens == [SEPARATOR]:
-            words.append(SEPARATOR)
-        else:
-            b2c = ctrl_b2c if is_ctrl else event_b2c
-            try:
-                words.append("".join(b2c[t] for t in tokens))
-            except KeyError:
-                return None
-    return " ".join(words) if words else None
+        words: list[str] = []
+        ok = True
+        for tokens, is_ctrl in items:
+            if tokens == [REST]:
+                words.append(REST)
+            elif tokens == [SEPARATOR]:
+                words.append(SEPARATOR)
+            else:
+                b2c = ctrl_b2c if is_ctrl else event_b2c
+                try:
+                    words.append("".join(b2c[t] for t in tokens))
+                except KeyError:
+                    ok = False
+                    break
+        if ok and words:
+            result.append(" ".join(words))
+    return result
 
 
 def serialize_midi_iter(
@@ -606,11 +617,9 @@ def serialize_midi_iter(
     onset_standalone: bool = False,
 ) -> Iterator[str]:
     for path in midi_files:
-        text = serialize_midi(path, base_token_to_char,
-                              onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins,
-                              onset_standalone=onset_standalone)
-        if text is not None:
-            yield text
+        yield from serialize_midi(path, base_token_to_char,
+                                  onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins,
+                                  onset_standalone=onset_standalone)
 
 
 def derive_corpus_from_fine(

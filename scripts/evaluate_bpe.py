@@ -18,7 +18,7 @@ _BPE_ROOT        = os.path.dirname(_SCRIPTS_DIR)
 _REPO_ROOT       = os.path.dirname(_BPE_ROOT)
 _DEFAULT_DATASET = os.path.join(_REPO_ROOT, "dataset", "lmd_matched")
 _DEFAULT_OUT          = os.path.join(_BPE_ROOT, "tokenizers", "vocab_sweep",
-                                     "q_onset-10ms_duration-10ms_velocity-128bin")
+                                     "q_onset-10ms_duration-10ms_velocity-32bin")
 _DEFAULT_OUT_NO_ONSET = os.path.join(_BPE_ROOT, "tokenizers", "merge_constraints",
                                      "no_onset_merge", "merges-8192")
 _DEFAULT_ANT_ROOT     = os.path.join(_BPE_ROOT, "tokenizers", "anticipation")
@@ -95,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out",        default=None)
     p.add_argument("--onset-ms",   type=float, default=10.0)
     p.add_argument("--dur-ms",     type=float, default=10.0)
-    p.add_argument("--vel-bins",   type=int,   default=128)
+    p.add_argument("--vel-bins",   type=int,   default=32)
     p.add_argument("--limit-files",      type=int, default=None)
     p.add_argument("--force-reeval",     action="store_true")
     p.add_argument("--onset-standalone", action="store_true",
@@ -254,9 +254,11 @@ def main() -> None:
                                          onset_standalone=onset_standalone)
                 next_abs_idx = start_idx + rel_idx + 1
                 if text is not None:
-                    batch_texts.append(text)
-                    # sum of word lengths = total AMT base tokens regardless of onset_standalone
-                    batch_orig_lens.append(sum(len(w) for w in text.split()))
+                    joined = " ".join(text) if isinstance(text, list) else text
+                    if joined:
+                        batch_texts.append(joined)
+                        # sum of word lengths = total AMT base tokens regardless of onset_standalone
+                        batch_orig_lens.append(sum(len(w) for w in joined.split()))
 
                 if len(batch_texts) >= EVAL_BATCH_SIZE:
                     flush_batch()

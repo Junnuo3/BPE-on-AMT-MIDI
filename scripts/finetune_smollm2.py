@@ -131,8 +131,11 @@ class AMTStreamDataset(_IterableDataset):
         self.vel_bins       = vel_bins
 
     def _iter_shard(self, tasks):
-        """Return only the tasks for this DataLoader worker."""
+        """Return only the tasks for this DataLoader worker, sharded by DDP rank first."""
         import torch
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized():
+            tasks = tasks[dist.get_rank() :: dist.get_world_size()]
         info = torch.utils.data.get_worker_info()
         if info is None:
             return tasks
@@ -152,28 +155,29 @@ class AMTStreamDataset(_IterableDataset):
         tasks     = [tasks[i] for i in idx_order]
         tasks     = list(self._iter_shard(tasks))
 
-        buffer: list[int] = []
-
         for path, k in tasks:
             seed = abs(hash(path)) % (2 ** 31) ^ (k * 1_000_003)
             rng  = np.random.default_rng(seed)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                text = serialize_midi_anticipation(
+                chunk_texts = serialize_midi_anticipation(
                     path, self.b2c, self.ctrl_b2c, k, rng,
                     onset_ms=self.onset_ms,
                     dur_ms=self.dur_ms,
                     vel_bins=self.vel_bins,
                 )
-            if text is None:
+            if not chunk_texts:
                 continue
 
-            ids = self.bpe_tokenizer.encode(text).ids
-            buffer.extend(ids)
+            # Each chunk is a separate ~100-second segment whose first event is at t=0
+            # (guaranteed by midi_to_amt normalization). Process chunks independently so
+            # no window ever crosses a chunk or file boundary.
+            for chunk_text in chunk_texts:
+                ids = self.bpe_tokenizer.encode(chunk_text).ids
+                if len(ids) < self.window_size:
+                    continue
 
-            while len(buffer) >= self.window_size:
-                window = np.array(buffer[: self.window_size], dtype=np.int64)
-                buffer = buffer[self.window_size :]
+                window = np.array(ids[: self.window_size], dtype=np.int64)
 
                 has_ctrl   = bool(np.isin(window, self.ctrl_ids).any())
                 prefix_id  = self.anticipate_id if has_ctrl else self.autoregress_id
@@ -186,7 +190,7 @@ class AMTStreamDataset(_IterableDataset):
 
 
 
-def build_model_and_tokenizer(smollm2_model_id: str, amt_tok_path: str) -> tuple:
+def build_model_and_tokenizer(smollm2_model_id: str, amt_tok_path: str, verbose: bool = True) -> tuple:
     """Load SmolLM2 and extend its vocab with AMT-BPE tokens.
 
     Returns (model, hf_tokenizer, id_offset, id_map, amt_tokenizer).
@@ -195,12 +199,14 @@ def build_model_and_tokenizer(smollm2_model_id: str, amt_tok_path: str) -> tuple
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from tokenizers import Tokenizer as HFTokenizer
 
-    print(f"Loading SmolLM2: {smollm2_model_id}")
+    if verbose:
+        print(f"Loading SmolLM2: {smollm2_model_id}")
     hf_tokenizer = AutoTokenizer.from_pretrained(smollm2_model_id)
     model        = AutoModelForCausalLM.from_pretrained(smollm2_model_id)
 
     id_offset = len(hf_tokenizer)
-    print(f"  SmolLM2 vocab size: {id_offset:,}")
+    if verbose:
+        print(f"  SmolLM2 vocab size: {id_offset:,}")
 
     amt_tokenizer     = HFTokenizer.from_file(amt_tok_path)
     amt_vocab         = amt_tokenizer.get_vocab()
@@ -214,8 +220,9 @@ def build_model_and_tokenizer(smollm2_model_id: str, amt_tok_path: str) -> tuple
         dtype=np.int64,
     )
 
-    print(f"  AMT-BPE tokens added: {n_added:,}  (offset {id_offset:,})")
-    print(f"  Extended vocab size: {len(hf_tokenizer):,}")
+    if verbose:
+        print(f"  AMT-BPE tokens added: {n_added:,}  (offset {id_offset:,})")
+        print(f"  Extended vocab size: {len(hf_tokenizer):,}")
     return model, hf_tokenizer, id_offset, id_map, amt_tokenizer
 
 
@@ -237,16 +244,24 @@ def parse_args() -> argparse.Namespace:
                    help="MIDI dataset directory (streaming mode).")
     p.add_argument("--augment-passes", type=int, default=10,
                    help="Augmentation passes per MIDI file per epoch (streaming mode).")
-    p.add_argument("--window",      type=int, default=4096,
+    p.add_argument("--window",      type=int, default=2048,
                    help="Sequence window size in tokens.")
     p.add_argument("--model",       default="HuggingFaceTB/SmolLM2-135M")
     p.add_argument("--out-dir",     default=os.path.join(_REPO_ROOT, "bpe", "outputs", "runs", "smollm2"),
                    help="Base output dir. Run is placed in <out-dir>/<feature>/<bins>/ "
                         "mirroring the anticipation layout.")
-    p.add_argument("--epochs",      type=int,   default=3)
+    p.add_argument("--max-steps",   type=int,   default=25000,
+                   help="Total gradient updates to run (primary training duration control).")
+    p.add_argument("--epochs",      type=int,   default=10,
+                   help="Max data passes (safety ceiling; training stops at --max-steps first).")
     p.add_argument("--batch-size",  type=int,   default=4)
-    p.add_argument("--grad-accum",  type=int,   default=8)
-    p.add_argument("--lr",          type=float, default=3e-4)
+    p.add_argument("--grad-accum",  type=int,   default=None,
+                   help="Gradient accumulation steps. Auto-computed from --target-tokens if omitted.")
+    p.add_argument("--target-tokens", type=int, default=500_000,
+                   help="Target effective batch size in tokens "
+                        "(seq_len × per-GPU-batch × num-GPUs × accum). "
+                        "Used to auto-compute --grad-accum when not explicitly set.")
+    p.add_argument("--lr",          type=float, default=2e-4)
     p.add_argument("--warmup-steps", type=int,  default=200)
     p.add_argument("--save-steps",   type=int,  default=500)
     p.add_argument("--fp16",         action="store_true", default=False)
@@ -257,6 +272,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed",         type=int,  default=42)
     p.add_argument("--workers",      type=int,  default=0,
                    help="DataLoader worker processes (streaming mode).")
+    p.add_argument("--wandb",        action="store_true", default=False,
+                   help="Enable Weights & Biases logging.")
+    p.add_argument("--run-name",     default=None,
+                   help="W&B run name (default: auto).")
     return p.parse_args()
 
 
@@ -266,13 +285,31 @@ def main() -> None:
 
     try:
         import torch
+        import torch.distributed as dist
         from torch.utils.data import DataLoader
-        from transformers import get_linear_schedule_with_warmup
+        from transformers import get_cosine_schedule_with_warmup
     except ImportError as e:
         print(f"ERROR: required package not found: {e}")
         sys.exit(1)
 
     torch.manual_seed(args.seed)
+
+    # DDP initialization — torchrun sets LOCAL_RANK when launched with multi-GPU
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    if "LOCAL_RANK" in os.environ:
+        dist.init_process_group(backend="nccl")
+        torch.cuda.set_device(local_rank)
+    is_main = (local_rank == 0)
+
+    # Auto-compute grad_accum so effective batch ≈ target_tokens.
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+    if args.grad_accum is None:
+        args.grad_accum = max(1, round(args.target_tokens / (world_size * args.batch_size * args.window)))
+    eff_tokens = world_size * args.batch_size * args.grad_accum * args.window
+    if is_main:
+        print(f"GPUs: {world_size}  batch/GPU: {args.batch_size}  "
+              f"grad_accum: {args.grad_accum}  seq_len: {args.window}  "
+              f"→ effective batch: {eff_tokens:,} tokens  (target: {args.target_tokens:,})")
 
     streaming = args.corpus is None
 
@@ -281,14 +318,16 @@ def main() -> None:
     if tokenizer_path is None:
         print("ERROR: --tokenizer not given and could not auto-detect one.")
         sys.exit(1)
-    print(f"AMT-BPE tokenizer: {os.path.basename(tokenizer_path)}")
+    if is_main:
+        print(f"AMT-BPE tokenizer: {os.path.basename(tokenizer_path)}")
 
     # quantization params
     cfg      = _auto_train_cfg(tokenizer_path)
     onset_ms = cfg.get("onset_ms", 10.0)
     dur_ms   = cfg.get("dur_ms",   10.0)
     vel_bins = cfg.get("vel_bins", 32)
-    print(f"Quantization: onset={onset_ms}ms  dur={dur_ms}ms  vel={vel_bins}bins")
+    if is_main:
+        print(f"Quantization: onset={onset_ms}ms  dur={dur_ms}ms  vel={vel_bins}bins")
 
     # run dir mirrors the anticipation layout
     if streaming:
@@ -301,22 +340,24 @@ def main() -> None:
     run_dir  = os.path.join(args.out_dir, feature, bins_str)
     ckpt_dir = os.path.join(run_dir, "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
-    print(f"Run dir: {run_dir}")
+    if is_main:
+        print(f"Run dir: {run_dir}")
 
     # model
     model, hf_tokenizer, id_offset, id_map, amt_tokenizer = build_model_and_tokenizer(
-        args.model, tokenizer_path,
+        args.model, tokenizer_path, verbose=is_main,
     )
 
-    # Save config for inference
-    with open(os.path.join(run_dir, "amt_config.json"), "w") as f:
-        json.dump({
-            "smollm2_model":   args.model,
-            "amt_tokenizer":   tokenizer_path,
-            "id_offset":       id_offset,
-            "window_size":     args.window,
-            "streaming_mode":  streaming,
-        }, f, indent=2)
+    # Save config for inference (rank 0 only)
+    if is_main:
+        with open(os.path.join(run_dir, "amt_config.json"), "w") as f:
+            json.dump({
+                "smollm2_model":   args.model,
+                "amt_tokenizer":   tokenizer_path,
+                "id_offset":       id_offset,
+                "window_size":     args.window,
+                "streaming_mode":  streaming,
+            }, f, indent=2)
 
     # dataset
     if streaming:
@@ -326,7 +367,8 @@ def main() -> None:
         if mapping_path is None:
             print("ERROR: --mapping not given and could not auto-detect from tokenizer dir.")
             sys.exit(1)
-        print(f"Mapping: {mapping_path}")
+        if is_main:
+            print(f"Mapping: {mapping_path}")
 
         b2c, c2b, ctrl_b2c, ctrl_c2b = load_mapping_doubled(mapping_path)
 
@@ -334,7 +376,8 @@ def main() -> None:
         amt_vocab  = amt_tokenizer.get_vocab()
         ctrl_chars = set(ctrl_b2c.values())
         ctrl_ids   = {amt_vocab[c] for c in ctrl_chars if c in amt_vocab}
-        print(f"  {len(ctrl_ids):,} ctrl token IDs")
+        if is_main:
+            print(f"  {len(ctrl_ids):,} ctrl token IDs")
 
         autoregress_id = amt_vocab.get("[AUTOREGRESS]")
         anticipate_id  = amt_vocab.get("[ANTICIPATE]")
@@ -346,9 +389,11 @@ def main() -> None:
         cache_dir  = os.path.join(os.path.dirname(os.path.dirname(tokenizer_path)), "cache")
         midi_files = load_filelist_cache(cache_dir, limit_files=None)
         if midi_files is None:
-            print(f"No file list cache found; scanning {args.dataset} …")
+            if is_main:
+                print(f"No file list cache found; scanning {args.dataset} …")
             midi_files = find_midi_files(args.dataset)
-        print(f"MIDI files: {len(midi_files):,}")
+        if is_main:
+            print(f"MIDI files: {len(midi_files):,}")
 
         dataset = AMTStreamDataset(
             midi_files     = midi_files,
@@ -365,6 +410,7 @@ def main() -> None:
             dur_ms         = dur_ms,
             vel_bins       = vel_bins,
         )
+        sampler    = None  # _iter_shard handles DDP rank splitting for IterableDataset
         dataloader = DataLoader(
             dataset, batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers,
@@ -372,54 +418,95 @@ def main() -> None:
         )
         # rough estimate: ~5000 BPE tokens per file per pass on average
         n_chunks_est = len(midi_files) * args.augment_passes * 5_000 // args.window
-        total_steps  = n_chunks_est // args.batch_size * args.epochs // args.grad_accum
-        print(f"Estimated chunks/epoch: {n_chunks_est:,}  "
-              f"estimated total steps: {total_steps:,}")
+        total_steps  = n_chunks_est // (args.batch_size * world_size) * args.epochs // args.grad_accum
+        if is_main:
+            print(f"Estimated chunks/epoch: {n_chunks_est:,}  "
+                  f"estimated total steps: {total_steps:,}")
 
     else:
-        print(f"Loading corpus: {args.corpus}")
+        if is_main:
+            print(f"Loading corpus: {args.corpus}")
         chunks = np.load(args.corpus, mmap_mode="r")
-        print(f"  Shape: {chunks.shape}  dtype: {chunks.dtype}")
+        if is_main:
+            print(f"  Shape: {chunks.shape}  dtype: {chunks.dtype}")
         n_chunks = len(chunks)
-        dataset    = AMTChunkDataset(chunks, id_map)
+        dataset = AMTChunkDataset(chunks, id_map)
+        sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True) \
+                  if dist.is_initialized() else None
         dataloader = DataLoader(
-            dataset, batch_size=args.batch_size, shuffle=True,
+            dataset, batch_size=args.batch_size,
+            sampler=sampler, shuffle=(sampler is None),
             num_workers=0, pin_memory=torch.cuda.is_available(),
         )
-        total_steps = n_chunks // args.batch_size * args.epochs // args.grad_accum
+        total_steps = n_chunks // (args.batch_size * world_size) * args.epochs // args.grad_accum
 
     # optimizer
-    device   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    has_cuda = torch.cuda.is_available()
-    # bf16 takes priority; fp16 is a fallback; bf16 never needs a grad scaler
-    use_bf16 = args.bf16 and has_cuda
-    use_fp16 = args.fp16 and not use_bf16 and has_cuda
+    has_cuda  = torch.cuda.is_available()
+    device    = torch.device(f"cuda:{local_rank}" if has_cuda else "cpu")
+    use_bf16  = args.bf16 and has_cuda
+    use_fp16  = args.fp16 and not use_bf16 and has_cuda
     amp_dtype = torch.bfloat16 if use_bf16 else torch.float16
-    print(f"Device: {device}")
+    if is_main:
+        print(f"Device: {device}  (world_size={world_size})")
     model.to(device)
 
+    # Wrap with DDP when torchrun launches multi-GPU
+    if dist.is_initialized():
+        from torch.nn.parallel import DistributedDataParallel as DDP
+        model = DDP(model, device_ids=[local_rank])
+    raw_model = model.module if dist.is_initialized() else model
+
+    max_steps = args.max_steps if args.max_steps > 0 else total_steps
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    scheduler = get_linear_schedule_with_warmup(
+    scheduler = get_cosine_schedule_with_warmup(
         optimizer,
         num_warmup_steps=args.warmup_steps,
-        num_training_steps=total_steps,
+        num_training_steps=max_steps,
     )
     scaler = torch.amp.GradScaler("cuda", enabled=use_fp16)  # bf16 never needs scaling
 
-    # training
-    mode_label = "streaming (on-the-fly augmentation)" if streaming else "static corpus"
-    print(f"\nFinetuning [{mode_label}]  epochs={args.epochs}  "
-          f"batch={args.batch_size}  grad_accum={args.grad_accum}")
+    # W&B (rank 0 only)
+    if is_main and args.wandb:
+        import wandb
+        wandb.init(
+            project="llm-midi-bpe",
+            name=args.run_name,
+            config={
+                "model":          args.model,
+                "window":         args.window,
+                "batch_size":     args.batch_size,
+                "grad_accum":     args.grad_accum,
+                "world_size":     world_size,
+                "eff_tokens":     eff_tokens,
+                "lr":             args.lr,
+                "warmup_steps":   args.warmup_steps,
+                "max_steps":      max_steps,
+                "epochs":         args.epochs,
+                "streaming":      streaming,
+                "augment_passes": args.augment_passes if streaming else None,
+            },
+        )
 
-    global_step = 0
-    for epoch in range(args.epochs):
+    # training — step-based, single progress bar
+    if is_main:
+        mode_label = "streaming (on-the-fly augmentation)" if streaming else "static corpus"
+        print(f"\nFinetuning [{mode_label}]  max_steps={max_steps}  "
+              f"batch={args.batch_size}  grad_accum={args.grad_accum}  lr={args.lr}")
+
+    global_step  = 0
+    epoch        = 0
+    last_ckpt    = None  # path of the previous rolling checkpoint (deleted on next save)
+    pbar = _tqdm(total=max_steps, desc="Training", unit="step",
+                 dynamic_ncols=True, disable=not is_main)
+
+    while global_step < max_steps and epoch < args.epochs:
+        if sampler is not None:
+            sampler.set_epoch(epoch)
         model.train()
-        epoch_loss = 0.0
+        run_loss = 0.0
         optimizer.zero_grad()
 
-        pbar = _tqdm(dataloader, desc=f"Epoch {epoch+1}/{args.epochs}",
-                     unit="batch", dynamic_ncols=True)
-        for step, batch in enumerate(pbar):
+        for step, batch in enumerate(dataloader):
             input_ids = batch["input_ids"].to(device)
             labels    = batch["labels"].to(device)
 
@@ -428,7 +515,7 @@ def main() -> None:
                 loss    = outputs.loss / args.grad_accum
 
             scaler.scale(loss).backward()
-            epoch_loss += loss.item() * args.grad_accum
+            run_loss += loss.item() * args.grad_accum
 
             if (step + 1) % args.grad_accum == 0:
                 scaler.unscale_(optimizer)
@@ -439,29 +526,59 @@ def main() -> None:
                 optimizer.zero_grad()
                 global_step += 1
 
-                avg = epoch_loss / max(1, step + 1)
+                avg    = run_loss / (step + 1)
                 lr_now = scheduler.get_last_lr()[0]
-                pbar.set_postfix(loss=f"{avg:.4f}", lr=f"{lr_now:.2e}", step=global_step)
+                pbar.set_postfix(loss=f"{avg:.4f}", lr=f"{lr_now:.2e}", pass_=epoch + 1)
+                pbar.update(1)
 
-                if global_step % args.save_steps == 0:
+                if is_main and args.wandb:
+                    import wandb
+                    wandb.log({
+                        "train/loss":        avg,
+                        "train/lr":          lr_now,
+                        "train/data_pass":   epoch + 1,
+                        "train/global_step": global_step,
+                    }, step=global_step)
+
+                if is_main and global_step % args.save_steps == 0:
                     ckpt = os.path.join(ckpt_dir, f"step_{global_step}")
-                    model.save_pretrained(ckpt)
+                    raw_model.save_pretrained(ckpt)
                     hf_tokenizer.save_pretrained(ckpt)
                     pbar.write(f"  Checkpoint → {ckpt}")
+                    if last_ckpt is not None and os.path.isdir(last_ckpt):
+                        import shutil
+                        shutil.rmtree(last_ckpt)
+                    last_ckpt = ckpt
 
-        pbar.close()
-        avg = epoch_loss / max(1, step + 1)
-        print(f"Epoch {epoch+1}/{args.epochs} — avg loss: {avg:.4f}")
+                if global_step >= max_steps:
+                    break
 
-        ckpt = os.path.join(ckpt_dir, f"epoch_{epoch+1}")
-        model.save_pretrained(ckpt)
-        hf_tokenizer.save_pretrained(ckpt)
-        print(f"  Epoch checkpoint → {ckpt}")
+        epoch += 1
+        if is_main:
+            avg_pass = run_loss / max(1, step + 1)
+            pbar.write(f"  [data pass {epoch}] avg loss: {avg_pass:.4f}")
+            ckpt = os.path.join(ckpt_dir, f"pass_{epoch}")
+            raw_model.save_pretrained(ckpt)
+            hf_tokenizer.save_pretrained(ckpt)
+            if last_ckpt is not None and os.path.isdir(last_ckpt):
+                import shutil
+                shutil.rmtree(last_ckpt)
+            last_ckpt = ckpt
 
-    final_dir = os.path.join(ckpt_dir, "final")
-    model.save_pretrained(final_dir)
-    hf_tokenizer.save_pretrained(final_dir)
-    print(f"\nFinal model → {final_dir}")
+    pbar.close()
+
+    if is_main:
+        final_dir = os.path.join(ckpt_dir, "final")
+        raw_model.save_pretrained(final_dir)
+        hf_tokenizer.save_pretrained(final_dir)
+        print(f"\nFinal model → {final_dir}")
+
+    if is_main and args.wandb:
+        import wandb
+        wandb.finish()
+
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

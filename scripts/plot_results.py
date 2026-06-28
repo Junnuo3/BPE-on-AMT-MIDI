@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 _SCRIPTS_DIR      = os.path.dirname(os.path.abspath(__file__))
 _BPE_ROOT         = os.path.dirname(_SCRIPTS_DIR)
 _DEFAULT_OUT      = os.path.join(_BPE_ROOT, "tokenizers", "vocab_sweep",
-                                  "q_onset-10ms_duration-10ms_velocity-128bin")
+                                  "q_onset-10ms_duration-10ms_velocity-32bin")
 _DEFAULT_QUANT    = os.path.join(_BPE_ROOT, "tokenizers", "quantization_sweep", "merges-8192")
 _DEFAULT_NO_ONSET = os.path.join(_BPE_ROOT, "tokenizers", "merge_constraints",
                                   "no_onset_merge", "merges-8192")

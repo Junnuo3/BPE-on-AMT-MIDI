@@ -23,19 +23,29 @@ from tokenizers import Tokenizer
 from bpe_utils import build_ctrl_mapping, load_mapping, save_mapping
 from bpe_train import double_tokenizer
 
-_DEFAULT_SRC = os.path.join(_BPE_ROOT, "tokenizers", "quantization_sweep", "merges-8192",
-                            "velocity", "onset-10ms_duration-10ms_velocity-32bin")
-_ANT_ROOT    = os.path.join(_BPE_ROOT, "tokenizers", "anticipation")
-_QUANT_ROOT  = os.path.join(_BPE_ROOT, "tokenizers", "quantization_sweep", "merges-8192")
+_DEFAULT_SRC  = os.path.join(_BPE_ROOT, "tokenizers", "vocab_sweep",
+                             "q_onset-10ms_duration-10ms_velocity-32bin")
+_DEFAULT_OUT  = os.path.join(_BPE_ROOT, "tokenizers", "anticipation",
+                             "velocity", "onset-10ms_duration-10ms_velocity-32bin")
+_ANT_ROOT     = os.path.join(_BPE_ROOT, "tokenizers", "anticipation")
+_QUANT_ROOT   = os.path.join(_BPE_ROOT, "tokenizers", "quantization_sweep", "merges-8192")
+_VOCAB_SWEEP  = os.path.join(_BPE_ROOT, "tokenizers", "vocab_sweep")
 
 
 def _derive_out_dir(src_dir: str) -> str:
-    """Map a quantization source dir to its anticipation output dir."""
+    """Map a source dir to its anticipation output dir."""
     src_dir = os.path.abspath(src_dir)
-    quant   = os.path.abspath(_QUANT_ROOT)
+    # vocab_sweep source → anticipation/velocity/<config>
+    vocab_sweep = os.path.abspath(_VOCAB_SWEEP)
+    if src_dir.startswith(vocab_sweep):
+        # strip leading "q_" prefix from the config folder name
+        config = os.path.basename(src_dir).lstrip("q_")
+        return os.path.join(_ANT_ROOT, "velocity", config)
+    # quantization_sweep source → mirrors the relative path under anticipation/
+    quant = os.path.abspath(_QUANT_ROOT)
     if src_dir.startswith(quant):
         return os.path.join(_ANT_ROOT, os.path.relpath(src_dir, quant))
-    # outside quantization/ — fall back to basename
+    # fallback
     return os.path.join(_ANT_ROOT, os.path.basename(src_dir))
 
 
@@ -52,8 +62,8 @@ def parse_args() -> argparse.Namespace:
                         f"(default: {os.path.relpath(_DEFAULT_SRC, _REPO_ROOT)})")
     p.add_argument("--out-dir", default=None,
                    help="Destination anticipation directory. "
-                        "Defaults to the corresponding anticipation/ subfolder "
-                        "derived from --src-dir.")
+                        "Defaults to the anticipation/ subfolder derived from --src-dir "
+                        f"(default src → {os.path.relpath(_DEFAULT_OUT, _REPO_ROOT)})")
     p.add_argument("--tokenizer", default=None,
                    help="Explicit tokenizer JSON inside src-dir/tokenizers/. "
                         "Auto-selects largest vocab if omitted.")

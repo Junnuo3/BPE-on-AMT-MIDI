@@ -16,7 +16,7 @@ _BPE_ROOT        = os.path.dirname(_SCRIPTS_DIR)
 _REPO_ROOT       = os.path.dirname(_BPE_ROOT)
 _DEFAULT_DATASET = os.path.join(_REPO_ROOT, "dataset", "lmd_matched")
 _DEFAULT_OUT          = os.path.join(_BPE_ROOT, "tokenizers", "vocab_sweep",
-                                     "q_onset-10ms_duration-10ms_velocity-128bin")
+                                     "q_onset-10ms_duration-10ms_velocity-32bin")
 _DEFAULT_OUT_NO_ONSET = os.path.join(_BPE_ROOT, "tokenizers", "merge_constraints",
                                      "no_onset_merge", "merges-8192")
 _DEFAULT_ANT_ROOT     = os.path.join(_BPE_ROOT, "tokenizers", "anticipation")
@@ -55,8 +55,8 @@ def parse_args() -> argparse.Namespace:
                    help="Onset quantization step in ms (default 10 ms)")
     p.add_argument("--dur-ms",       type=float, default=10.0,
                    help="Duration quantization step in ms (default 10 ms)")
-    p.add_argument("--vel-bins",     type=int, default=128,
-                   help="Velocity quantization levels (default 128 = no quantization)")
+    p.add_argument("--vel-bins",     type=int, default=32,
+                   help="Velocity quantization levels (default 32)")
     p.add_argument("--merges",       type=int, default=None,
                    help="Train to B+S+MERGES vocab size (alternative to --vocab-sizes)")
     p.add_argument("--vocab-sizes",  type=int, nargs="+", default=None)
@@ -64,6 +64,9 @@ def parse_args() -> argparse.Namespace:
                    help="Parallel workers for scan/serialise "
                         "(default: SLURM_CPUS_PER_TASK or all CPUs)")
     p.add_argument("--limit-files",       type=int, default=None)
+    p.add_argument("--corpus-only",        action="store_true",
+                   help="Build and cache the corpus then exit without BPE training. "
+                        "Use this before a parallel vocab-size array job.")
     p.add_argument("--force-rescan",      action="store_true")
     p.add_argument("--onset-standalone",  action="store_true",
                    help="Keep onset tokens as standalone words; BPE only merges "
@@ -200,6 +203,10 @@ def main() -> None:
                 n_workers=n_workers,
             )
             print(f"  Corpus complete — {len(corpus):,} valid files")
+
+    if args.corpus_only:
+        print(f"\nCorpus ready — {len(corpus):,} strings. Exiting (--corpus-only).")
+        return
 
     if augment and ctrl_b2c is None:  # ctrl mapping may still be missing if we hit the cache fast path
         ctrl_b2c, ctrl_c2b = build_ctrl_mapping(base_token_to_char)

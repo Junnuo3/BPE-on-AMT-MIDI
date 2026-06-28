@@ -1,12 +1,15 @@
 # Parse MIDI → AMT 5-token compound notes (time, duration, pitch, instrument, velocity).
 # onset_ms / dur_ms: quantization step in ms. vel_bins < 128 re-quantizes velocity linearly.
 # Drums map to instrument 128.
+# Pieces longer than CHUNK_SEC are split into non-overlapping chunks; timestamps are
+# re-zeroed to each chunk's start so no notes are clumped or discarded.
 
+import math
 import pretty_midi
 from collections import defaultdict
 
-_MAX_ONSET_SEC = 100   # clip onsets beyond 100 s
-_MAX_DUR_SEC   = 10    # clip durations beyond 10 s
+CHUNK_SEC    = 100   # chunk window in seconds
+_MAX_DUR_SEC = 10    # clip durations beyond 10 s
 
 
 def midi_to_amt(
@@ -14,13 +17,17 @@ def midi_to_amt(
     onset_ms: float = 10.0,
     dur_ms:   float = 10.0,
     vel_bins: int   = 128,
-) -> list[list[str]]:
-    """Return AMT compound notes sorted by (onset, pitch, instrument)."""
-    onset_scale = 1000.0 / onset_ms   # steps per second
+) -> list[list[list[str]]]:
+    """Parse MIDI and return a list of non-overlapping 100-second chunks.
+
+    Each chunk is a list of 5-token compound note lists sorted by (onset, pitch, instrument).
+    Timestamps within each chunk are relative to the chunk's start time.
+    """
+    onset_scale = 1000.0 / onset_ms   # quantization steps per second
     dur_scale   = 1000.0 / dur_ms
 
-    max_onset = round(_MAX_ONSET_SEC * onset_scale)
-    max_dur   = round(_MAX_DUR_SEC   * dur_scale)
+    chunk_steps = round(CHUNK_SEC * onset_scale)
+    max_dur     = round(_MAX_DUR_SEC * dur_scale)
 
     try:
         pm = pretty_midi.PrettyMIDI(midi_path)
@@ -31,18 +38,35 @@ def midi_to_amt(
     for inst in pm.instruments:
         iid = 128 if inst.is_drum else inst.program
         for note in inst.notes:
-            t = min(round(note.start * onset_scale), max_onset - 1)
+            t = round(note.start * onset_scale)
             d = max(1, min(round((note.end - note.start) * dur_scale), max_dur))
             v = round(note.velocity * (vel_bins - 1) / 127) if vel_bins < 128 else note.velocity
             raw.append((t, d, note.pitch, iid, v))
 
+    if not raw:
+        return []
+
     raw.sort(key=lambda n: (n[0], n[2], n[3]))
 
-    return [
-        [f"<time-{t}>", f"<duration-{d}>", f"<pitch-{p}>",
-         f"<instrument-{i}>", f"<velocity-{v}>"]
-        for t, d, p, i, v in raw
-    ]
+    max_t      = raw[-1][0]
+    n_chunks   = max(1, math.ceil((max_t + 1) / chunk_steps))
+    buckets: list[list[tuple[int, int, int, int, int]]] = [[] for _ in range(n_chunks)]
+
+    for t, d, p, i, v in raw:
+        chunk_idx = t // chunk_steps
+        buckets[chunk_idx].append((t - chunk_idx * chunk_steps, d, p, i, v))
+
+    result = []
+    for bucket in buckets:
+        if not bucket:
+            continue
+        min_t = bucket[0][0]  # bucket is sorted by onset; first entry has min onset
+        result.append([
+            [f"<time-{t - min_t}>", f"<duration-{d}>", f"<pitch-{p}>",
+             f"<instrument-{i}>", f"<velocity-{v}>"]
+            for t, d, p, i, v in bucket
+        ])
+    return result
 
 
 def amt_to_midi(

@@ -35,9 +35,11 @@ def _time(tok: list[str]) -> int:
 def run_checks(midi_path: str, onset_ms: float = 10.0, verbose: bool = True) -> dict:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        notes = midi_to_amt(midi_path, onset_ms=onset_ms)
-    if not notes:
+        chunks = midi_to_amt(midi_path, onset_ms=onset_ms)
+    if not chunks:
         return {"path": midi_path, "ok": False, "reason": "no notes parsed"}
+    # Use the first chunk; most test files are < 100 s so this covers the full piece.
+    notes = chunks[0]
 
     sps = _steps_per_sec(onset_ms)
     delta_steps = max(1, int(round(5.0 * sps)))

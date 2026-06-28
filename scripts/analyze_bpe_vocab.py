@@ -18,7 +18,7 @@ _BPE_ROOT        = os.path.dirname(_SCRIPTS_DIR)
 _REPO_ROOT       = os.path.dirname(_BPE_ROOT)
 _DEFAULT_DATASET = os.path.join(_REPO_ROOT, "dataset", "lmd_matched")
 _DEFAULT_OUT     = os.path.join(_BPE_ROOT, "tokenizers", "vocab_sweep",
-                                "q_onset-10ms_duration-10ms_velocity-128bin")
+                                "q_onset-10ms_duration-10ms_velocity-32bin")
 
 sys.path.insert(0, os.path.join(_SCRIPTS_DIR, "..", "src"))
 
@@ -52,6 +52,10 @@ def parse_args() -> argparse.Namespace:
                    help="Path to a trained tokenizer JSON.")
     p.add_argument("--vocab-size", type=int, default=None,
                    help="Infer tokenizer path from vocab size when --tokenizer-path is omitted.")
+    p.add_argument("--corpus-dir", default=None,
+                   help="Load serialised corpus cache from this directory instead of --out/cache/. "
+                        "Use when the tokenizer shares a corpus with another experiment "
+                        "(e.g. anticipation reuses vocab_sweep's cache).")
     p.add_argument("--limit-files", type=int, default=None,
                    help="Cap number of MIDI files when regenerating corpus.")
     p.add_argument("--force", action="store_true",
@@ -82,7 +86,7 @@ def extract_vocab_label(path: str) -> str | None:
 
 
 def load_corpus(args: argparse.Namespace, out_dir: str) -> list[str]:
-    cache_dir = os.path.join(out_dir, "cache")
+    cache_dir = os.path.join(args.corpus_dir, "cache") if args.corpus_dir else os.path.join(out_dir, "cache")
 
     if not args.limit_files:
         corpus_file = load_corpus_unconditional(cache_dir)

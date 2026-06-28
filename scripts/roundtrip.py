@@ -28,7 +28,7 @@ from bpe_utils   import (
     load_mapping, load_mapping_doubled, is_mapping_doubled,
     decode_bpe_ids,
 )
-from midi_to_amt import amt_to_midi, _MAX_ONSET_SEC
+from midi_to_amt import amt_to_midi
 from anticipation_utils import SEPARATOR, REST
 
 _DEFAULT_QUANT_OUT        = os.path.join(_BPE_ROOT, "tokenizers", "quantization_sweep", "merges-8192")
@@ -209,11 +209,12 @@ def _roundtrip_one(midi_path, exp_dir, factor, value, out_dir,
     b2c, c2b  = load_mapping(map_path)
     tokenizer = Tokenizer.from_file(tok_path)
 
-    text = serialize_midi(midi_path, b2c,
-                          onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins)
-    if text is None:
+    texts = serialize_midi(midi_path, b2c,
+                           onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins)
+    if not texts:
         print(f"  [fail]  {label}: MIDI could not be serialized with this vocab")
         return
+    text = texts[0]  # roundtrip uses a short clip, so one chunk
 
     enc   = tokenizer.encode(text)
     notes = decode_bpe_ids(enc, tokenizer, c2b)
@@ -263,11 +264,12 @@ def _roundtrip_anticipation(midi_path: str, ant_out_dir: str,
     import numpy as _np
     rng = _np.random.default_rng(0)
     # k=1: span-augmented (more interesting than k=0 which has no ctrl tokens)
-    text = serialize_midi_anticipation(midi_path, b2c, ctrl_b2c, k=1, rng=rng,
-                                       onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins)
-    if text is None:
+    texts = serialize_midi_anticipation(midi_path, b2c, ctrl_b2c, k=1, rng=rng,
+                                        onset_ms=onset_ms, dur_ms=dur_ms, vel_bins=vel_bins)
+    if not texts:
         print(f"  [fail]  anticipation: MIDI could not be serialized")
         return
+    text = texts[0]  # roundtrip uses a short clip, so one chunk
 
     enc   = tokenizer.encode(text)
     notes = decode_bpe_ids(enc, tokenizer, c2b,

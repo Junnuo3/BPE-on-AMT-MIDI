@@ -841,3 +841,43 @@ def decode_bpe_ids(
             continue
         result.append(words[wid])
     return result
+
+
+def decode_generated_ids(
+    token_strings: list[str],
+    char_to_base_token: dict[str, str],
+    ctrl_char_to_base_token: dict[str, str] | None = None,
+    strip_control: bool = True,
+) -> list[list[str]]:
+    """Decode a raw model.generate() token stream back to AMT compound notes.
+
+    generate() produces a flat id sequence with no word_ids, so note boundaries
+    can't be read off an Encoding (see decode_bpe_ids). Every note word is exactly
+    5 PUA chars (Whitespace pre-tokenizer never merges across the space), so chars
+    are regrouped every 5 instead. Sentinels ([REST]/[SEPARATOR]/mode tokens) are
+    always skipped and any partial note buffered before one (a malformed generation)
+    is discarded.
+    """
+    SENTINEL_STRINGS = {"[REST]", "[SEPARATOR]", "[AUTOREGRESS]", "[ANTICIPATE]",
+                        "[UNK]", "[PAD]", "[BOS]", "[EOS]"}
+
+    result: list[list[str]] = []
+    buf: list[str] = []
+    buf_is_ctrl = False
+
+    for tok_str in token_strings:
+        if tok_str in SENTINEL_STRINGS:
+            buf, buf_is_ctrl = [], False  # discard any partial note
+            continue
+        for c in tok_str:
+            if ctrl_char_to_base_token and c in ctrl_char_to_base_token:
+                buf.append(ctrl_char_to_base_token[c])
+                buf_is_ctrl = True
+            else:
+                buf.append(char_to_base_token.get(c, f"<UNK:{ord(c):#x}>"))
+            if len(buf) == 5:
+                if not (buf_is_ctrl and strip_control):
+                    result.append(buf)
+                buf, buf_is_ctrl = [], False
+
+    return result

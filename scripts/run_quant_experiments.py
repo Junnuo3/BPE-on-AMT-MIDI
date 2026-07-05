@@ -16,13 +16,13 @@ _SCRIPTS_DIR       = os.path.dirname(os.path.abspath(__file__))
 _BPE_ROOT          = os.path.dirname(_SCRIPTS_DIR)
 _REPO_ROOT         = os.path.dirname(_BPE_ROOT)
 _DEFAULT_DATASET   = os.path.join(_REPO_ROOT, "dataset", "lmd_matched")
-_DEFAULT_QUANT_OUT        = os.path.join(_BPE_ROOT, "tokenizers", "quantization_sweep", "merges-8192")
-_DEFAULT_QUANT_OUT_NO_ONS = os.path.join(_BPE_ROOT, "tokenizers", "merge_constraints", "no_onset_merge", "merges-8192")
+_DEFAULT_QUANT_OUT        = os.path.join(_BPE_ROOT, "tokenizers", "quantization_sweep", "vocab-27877")
+_DEFAULT_QUANT_OUT_NO_ONS = os.path.join(_BPE_ROOT, "tokenizers", "merge_constraints", "no_onset_merge", "vocab-27877")
 
 sys.path.insert(0, os.path.join(_SCRIPTS_DIR, "..", "src"))
 from bpe_utils import derive_corpus_from_fine, derive_no_onset_corpus, corpus_is_ready
 
-MERGES = 8192  # BPE merges above B+S for every experiment
+VOCAB_SIZE = 27877  # target vocab size for every experiment
 
 # One factor varied at a time, others fixed at defaults (10ms onset, 10ms dur, 128 bins).
 # finest_first=True: smaller value = finer (onset/duration). False: larger = finer (velocity bins).
@@ -95,10 +95,16 @@ def is_done(config_out: str) -> bool:
         return False
 
 
-def run_cmd(cmd: list[str], dry_run: bool) -> None:
+def run_cmd(cmd: list[str], dry_run: bool) -> bool:
+    """Returns True on success, False if the subprocess exits non-zero."""
     print("  $", " ".join(str(x) for x in cmd))
     if not dry_run:
-        subprocess.run(cmd, check=True)
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            print(f"  [skip] command exited {result.returncode} — "
+                  "vocab size likely below base alphabet for this config")
+            return False
+    return True
 
 
 def load_result(config_out: str) -> dict | None:
@@ -176,16 +182,17 @@ def run_factor(factor: str, spec: dict, args: argparse.Namespace) -> list[dict]:
 
             onset_flag = ["--onset-standalone"] if args.onset_standalone else []
 
-            run_cmd([sys.executable, train_script,
-                     "--dataset", args.dataset,
-                     "--out",     config_out,
-                     "--merges",  str(MERGES),
-                     ] + quant_args + onset_flag, args.dry_run)
+            ok = run_cmd([sys.executable, train_script,
+                          "--dataset", args.dataset,
+                          "--out",     config_out,
+                          "--vocab-sizes", str(VOCAB_SIZE),
+                          ] + quant_args + onset_flag, args.dry_run)
 
-            run_cmd([sys.executable, eval_script,
-                     "--dataset", args.dataset,
-                     "--out",     config_out,
-                     ] + quant_args + onset_flag, args.dry_run)
+            if ok:
+                run_cmd([sys.executable, eval_script,
+                         "--dataset", args.dataset,
+                         "--out",     config_out,
+                         ] + quant_args + onset_flag, args.dry_run)
 
         result = load_result(config_out)
         if result is not None:

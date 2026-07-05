@@ -56,6 +56,19 @@ python bpe/scripts/finetune_smollm2.py \
 
 10 passes per file per epoch: pass 0 = `[AUTOREGRESS]` (no control), passes 1–9 = `[ANTICIPATE]` with control extraction. 
 
+### Generation
+
+Runs `model.generate()` on a finetuned checkpoint and decodes the output back to a `.mid` file.
+
+```bash
+python bpe/scripts/generate_smollm2.py \
+    --run-dir bpe/outputs/runs/smollm2/velocity/onset-10ms_duration-10ms_velocity-32bin \
+    --num-samples 4
+# → .../generations/checkpoint-14400/sample_0000.mid, sample_0000.json, generation_config.json
+```
+
+Picks `checkpoints/final` if present, else the latest `checkpoint-N` (override with `--step`). For models finetuned with `--caption-text`, pass `--caption "..."`.
+
 ## Directory layout
 
 ```
@@ -103,7 +116,10 @@ bpe/outputs/runs/smollm2/
 └── velocity/
     └── onset-10ms_duration-10ms_velocity-32bin/
         ├── amt_config.json
-        └── checkpoints/
+        ├── checkpoints/
+        │   └── checkpoint-14400/   (or checkpoints/final/)
+        └── generations/
+            └── checkpoint-14400/   sample_0000.mid, sample_0000.json, generation_config.json
 ```
 
 The `{factor}/` sub-level (onset/duration/velocity) within each sweep group disambiguates experiments that share the same quant parameters at the default values (onset=10ms, dur=10ms, vel=128bin).
@@ -126,6 +142,11 @@ The `{factor}/` sub-level (onset/duration/velocity) within each sweep group disa
 | `--augment-passes N` | finetune | 10 | Anticipation passes per file per epoch |
 | `--corpus PATH` | finetune | — | Pre-built chunks.npy for baseline (static) mode |
 | `--fp16` | finetune | off | Mixed-precision training |
+| `--run-dir PATH` | generate | — | Training run dir (finds checkpoints/ + amt_config.json) |
+| `--step N \| final` | generate | latest | Which checkpoint to load |
+| `--caption TEXT` | generate | — | Text prompt, for `--caption-text` checkpoints |
+| `--num-samples N` | generate | 1 | Sequences to generate |
+| `--greedy` | generate | off (sampling) | Greedy decoding instead of sampling |
 
 All training scripts are resumable — interrupt and re-run to continue.
 Use `--force-rescan` / `--force-reeval` to start fresh.

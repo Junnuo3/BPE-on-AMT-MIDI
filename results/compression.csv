@@ -1,0 +1,3 @@
+tokenizer,songs,chunks,notes,tokens,tokens_per_note,window_sec_median,frac_chunks_fit,frac_tokens_in_window
+amt_compound_bpe_vocab11293.json,896,2225,3765897,18829485,5.0,21.4,0.125,0.227
+amt_compound_bpe_vocab27677.json,896,2225,3765897,10794307,2.866,34.2,0.213,0.378

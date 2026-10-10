@@ -1,0 +1,5 @@
+tokenizer,stage,learning_rate,best_step,stopped_step,eval_ar_loss_nats_per_token,eval_ar_loss_nats_per_base_token,eval_anticipation_loss_nats_per_token,eval_text_loss
+no_bpe,stage1,3e-3,30200,30600,0.6145,0.6136,0.5475,2.0876
+no_bpe,stage2,1e-3,35200,38000,0.712,0.7121,0.7207,
+bpe,stage1,3e-3,26800,26800,1.1399,0.5979,1.2244,2.1068
+bpe,stage2,1e-3,38400,38400,1.1565,0.6748,1.3088,

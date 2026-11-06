@@ -1,13 +1,7 @@
 __pycache__/
 *.pyc
 .DS_Store
-dataset/
+generated_outputs/
 checkpoints/
-outputs/
-generations/
-evaluation/
-wandb/
-tokenizers/**/cache/
-tokenizers/vocab_sweep/
 credentials.txt
 credential*.txt

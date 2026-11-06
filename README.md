@@ -11,7 +11,6 @@ compare the generated music.
 **Question.** With model, data and training recipe fixed, does applying BPE to AMT
 note tokens change the quality of caption-conditioned MIDI generation?
 
-- Listening examples: [demo page](https://junnuo3.github.io/BPE-on-AMT-MIDI/)
 - Checkpoints: [huggingface.co/Junnuo/BPE-on-AMT-MIDI](https://huggingface.co/Junnuo/BPE-on-AMT-MIDI)
 
 ## Representation
@@ -37,17 +36,16 @@ LMD-full and GigaMIDI. The merge count was chosen so that the BPE vocabulary
 (27,513; 55,028), which MIDI-LLM adds to its base model.
 
 Most merged tokens combine the non-onset fields. Of the 16,384 merged tokens,
-7,513 cover duration, pitch, instrument and velocity; 5,425 cover duration and
-pitch; and 2,217 cover instrument and velocity. Only 89 contain an onset, so a
+7,534 cover duration, pitch, instrument and velocity; 5,386 cover duration and
+pitch; and 2,200 cover instrument and velocity. Only 111 contain an onset, so a
 typical BPE note is `[onset][duration-pitch-instrument-velocity]`.
 
-Measured on the 896 test songs (`scripts/measure_compression.py`,
-`results/compression.csv`):
+Measured on the 896 test songs:
 
 | | Tokens per note | Music covered by one 2,048-token window (median) | Chunks that fit in one window | MIDI tokens inside the first window |
 |---|---|---|---|---|
 | No BPE | 5.00 | 21.4 s | 12.5% | 22.7% |
-| BPE | 2.87 | 34.2 s | 21.3% | 37.8% |
+| BPE | 2.87 | 34.3 s | 21.3% | 37.7% |
 
 ## Relation to MIDI-LLM
 
@@ -83,7 +81,7 @@ Both tokenizers use identical settings:
 | Model         | SmolLM2-135M, 2,048-token windows                                            |
 | Batch         | 2 GPUs × 4 sequences × 31 accumulation steps = 507,904 tokens per step       |
 | Optimizer     | AdamW, weight decay 0.1, constant learning rate after 200 warmup steps, bf16 |
-| Learning rate | 3e-3 (stage 1); 1e-3 (stage 2)                                               |
+| Learning rate | 3e-3 (stage 1); 1e-3 for BPE, 3e-4 for no BPE (stage 2)                       |
 | Captions      | Truncated to 256 tokens                                                      |
 
 ## Evaluation
@@ -103,8 +101,8 @@ On the test split:
 
 | Model | FAD ↓ | CLAP ↑ | Chroma JS ↓ | Groove-bar JS ↓ |
 |---|---|---|---|---|
-| No BPE | 0.785 | **0.307** | 0.154 | 0.167 |
-| BPE | **0.655** | 0.298 | **0.144** | **0.160** |
+| No BPE | 0.703 | 0.282 | 0.129 | **0.130** |
+| BPE | **0.446** | **0.299** | **0.111** | 0.201 |
 
 ## References
 

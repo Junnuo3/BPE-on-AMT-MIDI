@@ -81,7 +81,7 @@ Both tokenizers use identical settings:
 | Model         | SmolLM2-135M, 2,048-token windows                                            |
 | Batch         | 2 GPUs × 4 sequences × 31 accumulation steps = 507,904 tokens per step       |
 | Optimizer     | AdamW, weight decay 0.1, constant learning rate after 200 warmup steps, bf16 |
-| Learning rate | 3e-3 (stage 1); 1e-3 for BPE, 3e-4 for no BPE (stage 2)                       |
+| Learning rate | 3e-3 (stage 1); 1e-3 (stage 2)                                               |
 | Captions      | Truncated to 256 tokens                                                      |
 
 ## Evaluation

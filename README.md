@@ -8,8 +8,8 @@ within-note combinations of these tokens into single tokens. We train the same
 model with and without BPE, using a two-stage recipe adapted from MIDI-LLM, and
 compare the generated music.
 
-**Question.** With model, data and training recipe fixed, does applying BPE to AMT
-note tokens change the quality of caption-conditioned MIDI generation?
+**Question.** Can reducing the number of tokens per MIDI note through BPE improve the
+quality of caption-conditioned MIDI generation?
 
 - Listening examples, BPE vs MIDI-LLM: [demo page](https://junnuo3.github.io/BPE-on-AMT-MIDI/)
 - Checkpoints: [huggingface.co/Junnuo/BPE-on-AMT-MIDI](https://huggingface.co/Junnuo/BPE-on-AMT-MIDI)

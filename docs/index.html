@@ -79,7 +79,6 @@ h1 { font-family: var(--font-display); font-weight: 600; color: var(--ink-strong
 .canvas-wrap { position: relative; cursor: pointer; }
 .canvas-wrap canvas { display: block; width: 100%; }
 .player audio { display: block; width: 100%; height: 40px; margin-top: 14px; }
-.note-line { color: var(--ink-soft); font-size: 0.86rem; margin: 16px 2px 0; }
 
 .figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 4px 0 18px; }
 .fig { background: var(--well); border: 1px solid var(--well-line); border-radius: 12px; padding: 16px 18px; }
@@ -115,7 +114,6 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
     <span class="label" id="prompt-label">Input prompt</span>
     <div class="prompt" id="prompt" aria-labelledby="prompt-label" aria-live="polite"></div>
     <div class="players" id="players"></div>
-    <p class="note-line" id="note-line"></p>
   </section>
 
   <section class="panel" aria-labelledby="speed-h">
@@ -133,7 +131,7 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
   </footer>
 </div>
 
-<script src="site_data.js"></script>
+<script src="site_data.js?v=6173d7ee2d"></script>
 <script>
 (function () {
   const D = window.SITE_DATA;
@@ -307,11 +305,6 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
       const el = $("players").querySelector(`.player[data-k="${k}"]`);
       return new Roll(el.querySelector(".roll"), e.runs[k], el.querySelector("audio"));
     });
-    const b = e.runs.bpe, m = e.runs.midillm;
-    const bad = keys.filter((k) => !e.runs[k].valid).map((k) => NAME[k]);
-    $("note-line").textContent = !bad.length
-      ? `For this caption, BPE ÷ MIDI-LLM throughput is ${f(b.music_s_per_inference_s / m.music_s_per_inference_s)}× (one sample each; the aggregate is below).`
-      : `The ${bad.join(" and ")} sample for this caption fails MIDI-LLM's validity check (more than 64 notes at one onset), so no per-caption ratio is given.`;
   }
   function select(i, push) {
     current = Math.max(0, Math.min(D.examples.length - 1, i));

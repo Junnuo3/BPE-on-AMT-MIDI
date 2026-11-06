@@ -2,100 +2,345 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BPE on AMT MIDI: listening examples</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BPE vs MIDI-LLM</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Listening comparison of caption-to-MIDI generation: BPE over AMT note tokens (SmolLM2-135M) and MIDI-LLM (Llama-3.2-1B), with measured generation speed.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap">
 <style>
-  :root { --bg:#ffffff; --fg:#1d1d1f; --muted:#6e6e73; --line:#e3e3e6; --head:#f5f5f7; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#161618; --fg:#ececee; --muted:#9a9aa0; --line:#2e2e32; --head:#1f1f22; } }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
-  main { max-width:1180px; margin:0 auto; padding:32px 16px 64px; }
-  h1 { font-size:24px; margin:0 0 8px; }
-  p { color:var(--muted); max-width:860px; }
-  a { color:inherit; }
-  table { width:100%; border-collapse:collapse; margin-top:20px; }
-  th, td { text-align:left; vertical-align:top; padding:12px 10px; border-bottom:1px solid var(--line); }
-  th { background:var(--head); font-size:13px; font-weight:600; position:sticky; top:0; }
-  td.id { color:var(--muted); width:28px; }
-  td.cap { width:44%; }
-  audio { width:100%; min-width:200px; display:block; }
-  .dur { font-size:12px; color:var(--muted); }
-  @media (max-width:760px) {
-    thead { display:none; }
-    tr { display:block; border-bottom:1px solid var(--line); padding:12px 0; }
-    td { display:block; border:0; padding:4px 0; width:auto !important; }
-    td:nth-child(3)::before { content:"BPE"; font-size:12px; color:var(--muted); }
-    td:nth-child(4)::before { content:"No BPE"; font-size:12px; color:var(--muted); }
-  }
+/* Layout: one centered column of white panels on a warm off-white ground (after the MIDI-LLM demo);
+   players stack full width so each piano roll gets the whole row. Deliberately light-only. */
+:root {
+  --ground-a: #fdfcfb; --ground-b: #f7f6f4;
+  --panel: #ffffff; --panel-line: #e2e8f0;
+  --well: #fbfaf9; --well-line: #f0efed;
+  --ink: #2d3748; --ink-strong: #1a202c; --ink-soft: #718096; --ink-faint: #a0aec0;
+  --chip-a: #f8fafc; --chip-b: #f1f5f9; --chip-ink: #64748b;
+  --chip-on-a: #1e3a8a; --chip-on-b: #1e40af;
+  --all-a: #28a745; --all-b: #20c997;
+  --playhead: #e23636;
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-body: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: linear-gradient(135deg, var(--ground-a), var(--ground-b)); background-color: var(--ground-b);
+  color: var(--ink); font: 16px/1.6 var(--font-body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+a { color: var(--chip-on-b); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 48px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+header.top { text-align: center; margin-bottom: 36px; }
+h1 { font-family: var(--font-display); font-weight: 600; color: var(--ink-strong); font-size: clamp(1.9rem, 4.6vw, 3rem);
+  letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 14px; text-wrap: balance; }
+.lede { color: var(--ink-soft); font-size: 1.07rem; max-width: 680px; margin: 0 auto; }
+
+.panel { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 16px; padding: clamp(18px, 4vw, 36px);
+  box-shadow: 0 4px 6px -1px #0000001a, 0 2px 4px -1px #0000000f; margin-bottom: 32px; }
+.panel > h2 { font-family: var(--font-display); font-weight: 600; color: var(--ink-strong); font-size: 1.5rem; margin: 0 0 22px;
+  padding-bottom: 14px; border-bottom: 2px solid var(--panel-line); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-bottom: 28px; }
+.chip { font: 600 0.86rem/1.2 var(--font-body); color: var(--chip-ink); border: 0; border-radius: 12px; padding: 11px 15px; cursor: pointer;
+  background: linear-gradient(135deg, var(--chip-a), var(--chip-b)); box-shadow: 0 4px 6px -1px #94a3b81a; transition: transform .2s ease, box-shadow .2s ease; }
+.chip:hover { transform: translateY(-2px); box-shadow: 0 8px 15px -3px #94a3b833; color: #475569; }
+.chip[aria-pressed="true"] { color: #fff; font-weight: 700; background: linear-gradient(135deg, var(--chip-on-a), var(--chip-on-b));
+  box-shadow: 0 4px 6px -1px #1e3a8a66, inset 0 2px 4px #0003; transform: translateY(1px); }
+.chip:focus-visible, .pill:focus-visible, audio:focus-visible { outline: 2px solid #4299e1; outline-offset: 2px; }
+
+.label { display: block; font: 500 0.8rem/1.4 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); margin-bottom: 8px; }
+.prompt { background: #fafafa; border: 2px solid var(--panel-line); border-radius: 12px; padding: 16px; font: 0.92rem/1.6 var(--font-mono);
+  color: var(--ink); margin-bottom: 28px; }
+
+.players { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.player { background: var(--well); border: 1px solid var(--well-line); border-radius: 12px; padding: clamp(14px, 3vw, 20px); min-width: 0; }
+.player.ours { border-color: #e4e0ef; }
+.player-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 18px; margin-bottom: 12px; }
+.who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.who .name { font-family: var(--font-display); font-weight: 700; font-size: 1.3rem; color: var(--ink-strong); }
+.who .base { color: var(--ink-soft); font-size: 0.92rem; }
+.stats { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.86rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--ink-strong); font-weight: 600; }
+
+.roll { background: var(--well); border: 1px solid var(--well-line); border-radius: 10px; overflow: hidden; }
+.pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-bottom: 1px solid var(--well-line); background: #ffffffe6; }
+.pills .show { font: 300 0.74rem var(--font-body); color: #4a5568; margin-right: 2px; }
+.pill { font: 600 0.74rem/1 var(--font-body); border: 0; border-radius: 4px; padding: 5px 8px; min-height: 22px; cursor: pointer;
+  color: #6c757d; background: #6c757d1a; opacity: .65; transition: filter .15s ease, opacity .15s ease; }
+.pill.on { color: #fff; background: var(--c); opacity: 1; }
+.pill:not(.on):hover { opacity: 1; color: #fff; background: var(--c); }
+.pill.all { margin-right: 6px; color: #6c757d; background: linear-gradient(135deg, #f8f9fa, #e9ecef); opacity: 1; }
+.pill.all.on { color: #fff; background: linear-gradient(135deg, var(--all-a), var(--all-b)); }
+.pill.clear { background: none; color: #8b8b8b; font-weight: 300; text-decoration: underline; opacity: 1; margin-left: 6px; padding: 5px 4px; }
+.canvas-wrap { position: relative; cursor: pointer; }
+.canvas-wrap canvas { display: block; width: 100%; }
+.player audio { display: block; width: 100%; height: 40px; margin-top: 14px; }
+.note-line { color: var(--ink-soft); font-size: 0.86rem; margin: 16px 2px 0; }
+
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 4px 0 18px; }
+.fig { background: var(--well); border: 1px solid var(--well-line); border-radius: 12px; padding: 16px 18px; }
+.fig .v { font-family: var(--font-display); font-size: 2rem; font-weight: 700; color: var(--ink-strong); line-height: 1.15; font-variant-numeric: lining-nums tabular-nums; }
+.fig .k { color: var(--ink-soft); font-size: 0.88rem; }
+.sub { color: var(--ink-soft); margin: 0 0 16px; max-width: 820px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--well-line); border-radius: 12px; background: var(--well); margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--well-line); vertical-align: top; }
+th { font-weight: 600; color: var(--ink-soft); white-space: nowrap; font-size: 0.8rem; letter-spacing: 0.02em; }
+tr:last-child td { border-bottom: 0; }
+td .iqr { color: var(--ink-faint); font-size: 0.8rem; white-space: nowrap; }
+.mono { font-family: var(--font-mono); font-size: 0.82em; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 7px; }
+ul.tight { margin: 8px 0 0; padding-left: 20px; color: var(--ink-soft); font-size: 0.88rem; }
+ul.tight li { margin: 4px 0; }
+h3 { font-family: var(--font-display); font-weight: 600; color: var(--ink-strong); font-size: 1.15rem; margin: 26px 0 4px; }
+footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-width: 820px; margin: 0 auto; }
+@media (prefers-reduced-motion: reduce) { .chip, .pill { transition: none; } .chip:hover { transform: none; } }
 </style>
 </head>
 <body>
-<main>
-  <h1>BPE on AMT MIDI: listening examples</h1>
-  <table>
-    <thead><tr><th>#</th><th>Caption</th><th>BPE</th><th>No BPE</th></tr></thead>
-    <tbody>
-    <tr>
-      <td class="id">01</td>
-      <td class="cap">A melodic electronic and classical composition in Eb major, featuring a clavinet as the sole instrument. The piece maintains a moderate tempo and a 4/8 time signature, evoking a dark and spacious atmosphere that could be well-suited for film. The harmonic structure revolves around the chords F, Bb, and Cm.</td>
-      <td><audio controls preload="none" src="examples/01/bpe.mp3"></audio><span class="dur">71 s</span></td>
-      <td><audio controls preload="none" src="examples/01/no_bpe.mp3"></audio><span class="dur">54 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">02</td>
-      <td class="cap">A cheerful and inspiring electronic pop song featuring acoustic guitar, trombone, piccolo, percussive organ, and drums, set in A minor with a 4/4 time signature and an Andante tempo, progressing through a chord sequence of G7, C, Em, A7, and Dm, creating an uplifting and relaxing corporate atmosphere.</td>
-      <td><audio controls preload="none" src="examples/02/bpe.mp3"></audio><span class="dur">14 s</span></td>
-      <td><audio controls preload="none" src="examples/02/no_bpe.mp3"></audio><span class="dur">15 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">03</td>
-      <td class="cap">A fast-paced classical piece with a cinematic flair, this short song in F major is characterized by its 3/4 time signature. The piano takes the lead, accompanied by the delicate plucks of pizzicato strings, the rich tones of the string ensemble, the mellow notes of the clarinet, and the majestic sound of the French horn. The composition evokes a sense of adventure and drama, making it well-suited for film scores or Christmas-themed documentaries.</td>
-      <td><audio controls preload="none" src="examples/03/bpe.mp3"></audio><span class="dur">43 s</span></td>
-      <td><audio controls preload="none" src="examples/03/no_bpe.mp3"></audio><span class="dur">40 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">04</td>
-      <td class="cap">A melodic electronic soundtrack featuring piano, harpsichord, music box, marimba, and celesta, evoking a blend of dark and emotional tones suitable for film. Set in C major with a moderate 4/4 tempo, this short composition showcases a chord progression of Em, Dmaj7, and Cmaj7.</td>
-      <td><audio controls preload="none" src="examples/04/bpe.mp3"></audio><span class="dur">31 s</span></td>
-      <td><audio controls preload="none" src="examples/04/no_bpe.mp3"></audio><span class="dur">17 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">05</td>
-      <td class="cap">A slow and melodic electronic song with a Christmas vibe, featuring a piano, string ensemble, and acoustic guitar. The piece is in D major and 4/4 time, with a chord progression of D, A, Em7, D, and A. The relaxing composition evokes a meditative and cinematic atmosphere.</td>
-      <td><audio controls preload="none" src="examples/05/bpe.mp3"></audio><span class="dur">58 s</span></td>
-      <td><audio controls preload="none" src="examples/05/no_bpe.mp3"></audio><span class="dur">38 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">06</td>
-      <td class="cap">This energetic and melodic electronic piece, with a hint of pop influence, features a piano as the sole instrument. Set in the key of F# minor and maintaining a lively Vivace tempo, it unfolds with a 4/4 time signature. The chord sequence of Amaj7, B6, C#, Amaj7, and Abm adds an intriguing harmonic foundation to this short but captivating composition.</td>
-      <td><audio controls preload="none" src="examples/06/bpe.mp3"></audio><span class="dur">39 s</span></td>
-      <td><audio controls preload="none" src="examples/06/no_bpe.mp3"></audio><span class="dur">13 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">07</td>
-      <td class="cap">This electronic and soundtrack composition evokes a cinematic atmosphere, blending meditative and epic elements. With a fast tempo set at 150 beats per minute and a unique 5/4 time signature, it features an ensemble of overdriven guitar, strings, and synth pads. The harmonic journey unfolds through a sequence of Dm, A, Eb/Bb, Ab, and F chords in the key of F major.</td>
-      <td><audio controls preload="none" src="examples/07/bpe.mp3"></audio><span class="dur">18 s</span></td>
-      <td><audio controls preload="none" src="examples/07/no_bpe.mp3"></audio><span class="dur">15 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">08</td>
-      <td class="cap">A lively and uplifting electronic pop song featuring a blend of piano, honky-tonk piano, tuba, and drums. Set in the key of D minor with a 4/4 time signature, this fast-paced track exudes happiness and motivation. The chord progression of Dm, C6, F6, and Bb adds to its energetic and inspiring vibe.</td>
-      <td><audio controls preload="none" src="examples/08/bpe.mp3"></audio><span class="dur">15 s</span></td>
-      <td><audio controls preload="none" src="examples/08/no_bpe.mp3"></audio><span class="dur">14 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">09</td>
-      <td class="cap">A relaxing and happy classical piece with a hint of pop, featuring an accordion, acoustic guitar, and contrabass, set in A minor with a slow Adagio tempo and a 2/4 time signature, revolving around the chord progression of Am, G, C, and G.</td>
-      <td><audio controls preload="none" src="examples/09/bpe.mp3"></audio><span class="dur">40 s</span></td>
-      <td><audio controls preload="none" src="examples/09/no_bpe.mp3"></audio><span class="dur">30 s</span></td>
-    </tr>
-    <tr>
-      <td class="id">10</td>
-      <td class="cap">A cheerful Christmas song that blends classical and pop elements, featuring a piano, trombone, tenor saxophone, drums, and clean electric guitar, all working together to create a melodic and uplifting atmosphere, with the main chord progression of Dm7, G, F/C, and C adding to its joyful character, while the moderate tempo and 4/4 time signature keep the piece grounded and accessible.</td>
-      <td><audio controls preload="none" src="examples/10/bpe.mp3"></audio><span class="dur">14 s</span></td>
-      <td><audio controls preload="none" src="examples/10/no_bpe.mp3"></audio><span class="dur">21 s</span></td>
-    </tr>
-    </tbody>
-  </table>
-</main>
+<div class="wrap">
+  <header class="top">
+    <h1>BPE on AMT tokens vs MIDI-LLM</h1>
+    <p class="lede">Caption-to-MIDI samples from our BPE model (SmolLM2-135M) and MIDI-LLM (Llama-3.2-1B), each generated
+      with its own sampling settings and rendered through the same synthesizer and SoundFont.</p>
+  </header>
+
+  <section class="panel" aria-labelledby="listen-h">
+    <h2 id="listen-h">Listen</h2>
+    <div class="chips" id="chips" role="group" aria-label="Caption"></div>
+    <span class="label" id="prompt-label">Input prompt</span>
+    <div class="prompt" id="prompt" aria-labelledby="prompt-label" aria-live="polite"></div>
+    <div class="players" id="players"></div>
+    <p class="note-line" id="note-line"></p>
+  </section>
+
+  <section class="panel" aria-labelledby="speed-h">
+    <h2 id="speed-h">Generation speed</h2>
+    <p class="sub" id="speed-sub"></p>
+    <div class="figs" id="figs"></div>
+    <div class="table-wrap"><table id="main-table"></table></div>
+  </section>
+
+  <footer>
+    <p>Our model: <a href="https://github.com/Junnuo3/BPE-on-AMT-MIDI">Junnuo3/BPE-on-AMT-MIDI</a>.
+      MIDI-LLM: S.-L. Wu, D. Carlton, R. Mikayawa, Y. Kim, C. Donahue, C.-Z. A. Huang, “MIDI-LLM: Improving text-to-MIDI
+      music generation via adapting large language models,” ISMIR 2026
+      (<a href="https://github.com/slSeanWU/MIDI-LLM">code</a>, <a href="https://huggingface.co/slseanwu/MIDI-LLM_Llama-3.2-1B">model</a>).</p>
+  </footer>
+</div>
+
+<script src="site_data.js"></script>
+<script>
+(function () {
+  const D = window.SITE_DATA;
+  const ORDER = ["bpe", "midillm"];
+  const NAME = { bpe: "BPE (ours)", midillm: "MIDI-LLM" };
+  const DOT = { bpe: "#1e40af", midillm: "#b4531a" };
+  // General MIDI family colors, as in the MIDI-LLM demo's piano roll.
+  const PALETTE = ["#db359e","#662075","#cf823e","#e4bb93","#438943","#a3ce9b","#b34a4b","#eaacab","#9378ac","#c4b7ce",
+                   "#7f5f58","#baa29e","#cd8dba","#eac3d4","#7f7f7f","#c7c7c7","#9d9e41","#cbcb9d","#3ca0aa","#acd0d7"];
+  const SLOT = [0, 2, 4, 6, 8, 10, 12, 16, 18, 1, 3, 5, 7, 9, 11, 13];
+  const FAMILY = ["Piano", "Chrom. Perc.", "Organ", "Guitar", "Bass", "Strings", "Ensemble", "Brass", "Reed", "Pipe",
+                  "Synth Lead", "Synth Pad", "Synth FX", "Ethnic", "Percussive", "Sound FX"];
+  const DRUM_COLOR = "#1f1f1f";
+  const famKey = (t) => (t.is_drum ? "drums" : "fam-" + Math.min(15, Math.floor(t.program / 8)));
+  const famColor = (k) => (k === "drums" ? DRUM_COLOR : PALETTE[SLOT[+k.slice(4)]]);
+  const famLabel = (k) => (k === "drums" ? "Drums" : FAMILY[+k.slice(4)]);
+  const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const f = (x, d = 2) => (x === null || x === undefined ? "–" : Number(x).toFixed(d));
+  const int = (x) => (x === null || x === undefined ? "–" : Math.round(x).toLocaleString("en-US"));
+  const num = (x) => (Number.isInteger(x) ? x.toFixed(1) : String(x));
+  const samp = (s) => `T ${num(s.temperature)}, top-p ${num(s.top_p)}, top-k ${s.top_k || "off"}`;
+
+  // ---------- piano roll ----------
+  class Roll {
+    constructor(root, run, audio) {
+      this.root = root; this.audio = audio; this.tracks = run.tracks || [];
+      this.canvas = root.querySelector("canvas"); this.ctx = this.canvas.getContext("2d");
+      const notes = this.tracks.flatMap((t) => t.notes);
+      this.minP = notes.length ? Math.min(...notes.map((n) => n[2])) - 1 : 48;
+      this.maxP = notes.length ? Math.max(...notes.map((n) => n[2])) + 1 : 72;
+      this.maxT = Math.max(0.5, ...notes.map((n) => n[0] + Math.max(n[1], 0.06)));
+      const groups = new Map();
+      for (const t of this.tracks) {
+        const k = famKey(t);
+        if (!groups.has(k)) groups.set(k, new Set());
+        groups.get(k).add(t.name);
+      }
+      this.groups = [...groups.keys()].sort((a, b) => (a === "drums") - (b === "drums") || +a.slice(4) - +b.slice(4))
+        .map((k) => ({ key: k, names: [...groups.get(k)] }));
+      this.visible = new Set(this.groups.map((g) => g.key));
+      this.raf = null;
+      this.renderPills();
+      this.canvas.addEventListener("click", (e) => this.seek(e));
+      if (this.audio) {
+        this.audio.addEventListener("play", () => { pauseOthers(this.audio); this.loop(); });
+        for (const ev of ["pause", "ended", "seeked", "loadedmetadata"]) this.audio.addEventListener(ev, () => this.draw());
+      }
+      if (typeof ResizeObserver !== "undefined") { this.ro = new ResizeObserver(() => this.draw()); this.ro.observe(this.root); }
+      this.draw();
+    }
+    renderPills() {
+      const box = this.root.querySelector(".pills");
+      const all = this.visible.size === this.groups.length;
+      box.innerHTML = `<span class="show">Show</span>
+        <button type="button" class="pill all${all ? " on" : ""}" data-k="__all">All</button>` +
+        this.groups.map((g) => `<button type="button" class="pill${this.visible.has(g.key) ? " on" : ""}" data-k="${g.key}"
+          style="--c:${famColor(g.key)}" aria-pressed="${this.visible.has(g.key)}" title="${esc(g.names.join(", "))}">${famLabel(g.key)}</button>`).join("") +
+        `<button type="button" class="pill clear" data-k="__none">Clear</button>`;
+      box.onclick = (e) => {
+        const b = e.target.closest(".pill"); if (!b) return;
+        const k = b.dataset.k;
+        if (k === "__all") this.visible = new Set(this.groups.map((g) => g.key));
+        else if (k === "__none") this.visible.clear();
+        else if (this.visible.has(k)) this.visible.delete(k); else this.visible.add(k);
+        this.renderPills(); this.draw();
+      };
+    }
+    geom() {
+      const w = this.canvas.parentElement.clientWidth || 600;
+      const range = this.maxP - this.minP + 1;
+      const row = Math.max(3, Math.min(9, 300 / range));
+      const top = 10, left = 36, right = 10;
+      return { w, h: Math.max(180, Math.round(range * row + top * 2)), row, top, left, drawW: w - left - right };
+    }
+    x(t, g) { return g.left + (t / this.maxT) * g.drawW; }
+    now() { return this.audio ? this.audio.currentTime || 0 : 0; }
+    seek(e) {
+      if (!this.audio) return;
+      const g = this.geom(), r = this.canvas.getBoundingClientRect();
+      const t = Math.max(0, Math.min(this.maxT, ((e.clientX - r.left - g.left) / g.drawW) * this.maxT));
+      this.audio.currentTime = t; this.draw();
+    }
+    loop() {
+      cancelAnimationFrame(this.raf);
+      const step = () => { this.draw(); if (!this.audio.paused && !this.audio.ended) this.raf = requestAnimationFrame(step); };
+      this.raf = requestAnimationFrame(step);
+    }
+    draw() {
+      const g = this.geom(), c = this.canvas, ctx = this.ctx, dpr = window.devicePixelRatio || 1;
+      if (c.width !== Math.round(g.w * dpr) || c.height !== Math.round(g.h * dpr)) {
+        c.width = Math.round(g.w * dpr); c.height = Math.round(g.h * dpr); c.style.height = g.h + "px";
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = "#fbfaf9"; ctx.fillRect(0, 0, g.w, g.h);
+      const y = (p) => g.top + (this.maxP - p) * g.row;
+      ctx.font = "9px Inter, -apple-system, sans-serif"; ctx.textAlign = "right";
+      for (let p = this.minP; p <= this.maxP; p++) {
+        if (p % 12) continue;
+        const yy = y(p) + g.row / 2;
+        ctx.strokeStyle = "#e6e5e2"; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(g.left, yy); ctx.lineTo(g.w, yy); ctx.stroke();
+        ctx.fillStyle = "#a9a6a1"; ctx.fillText(NOTE_NAMES[p % 12] + (Math.floor(p / 12) - 1), g.left - 6, yy + 3);
+      }
+      const t = this.now();
+      const live = this.audio && (!this.audio.paused || t > 0);
+      if (!this.visible.size) {
+        ctx.fillStyle = "#a0a0a0"; ctx.font = "13px Inter, -apple-system, sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("No instruments selected", g.w / 2, g.h / 2); return;
+      }
+      const active = [];
+      const h = Math.max(2, g.row - 1);
+      for (const tr of this.tracks) {
+        const k = famKey(tr); if (!this.visible.has(k)) continue;
+        const col = famColor(k);
+        ctx.fillStyle = col;
+        for (const n of tr.notes) {
+          const on = live && n[0] <= t && t < n[0] + Math.max(n[1], 0.06);
+          if (on) { active.push([n, col]); continue; }
+          ctx.globalAlpha = live ? 0.5 : 0.85;
+          pill(ctx, this.x(n[0], g), y(n[2]), Math.max(2, (Math.max(n[1], 0.06) / this.maxT) * g.drawW), h, 2);
+        }
+      }
+      ctx.globalAlpha = 1;
+      for (const [n, col] of active) {  // notes sounding at the playhead: full color, taller, outlined
+        const xx = this.x(n[0], g), ww = Math.max(3, (Math.max(n[1], 0.06) / this.maxT) * g.drawW);
+        ctx.fillStyle = col; pill(ctx, xx, y(n[2]) - 1.5, ww, h + 3, 3);
+        ctx.strokeStyle = "#1a202c"; ctx.lineWidth = 1; ctx.strokeRect(xx + 0.5, y(n[2]) - 1, ww - 1, h + 2);
+      }
+      if (live) {
+        const px = Math.min(g.left + g.drawW, this.x(Math.min(t, this.maxT), g));
+        ctx.save(); ctx.shadowColor = "#e2363680"; ctx.shadowBlur = 4; ctx.fillStyle = "#e23636";
+        ctx.fillRect(px - 1, 0, 2, g.h); ctx.restore();
+      }
+    }
+  }
+  function pill(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.fill();
+  }
+  function pauseOthers(me) { document.querySelectorAll("audio").forEach((a) => { if (a !== me && !a.paused) a.pause(); }); }
+
+  // ---------- listen panel ----------
+  let current = 0, rolls = [];
+  $("chips").innerHTML = D.examples.map((e, i) =>
+    `<button type="button" class="chip" data-i="${i}" aria-pressed="false" title="${esc(e.caption)}">${esc(e.short)}</button>`).join("");
+  $("chips").addEventListener("click", (ev) => { const b = ev.target.closest(".chip"); if (b) select(+b.dataset.i, true); });
+
+  function player(k, r) {
+    return `<article class="player${k === "bpe" ? " ours" : ""}" data-k="${k}">
+      <div class="player-head">
+        <div class="who"><span class="name">${NAME[k]}</span><span class="base">${esc(D.models[k].base_model)}</span></div>
+        <div class="stats"><span>Inference <b>${f(r.inference_s)} s</b></span><span>Music <b>${f(r.music_s, 1)} s</b></span>
+          <span>Throughput <b>${f(r.music_s_per_inference_s)}</b> music s / s</span></div>
+      </div>
+      <div class="roll"><div class="pills"></div><div class="canvas-wrap"><canvas aria-label="Piano roll of the ${NAME[k]} output; click to seek"></canvas></div></div>
+      ${r.audio ? `<audio controls preload="metadata" src="${esc(r.audio)}"></audio>` : ""}
+    </article>`;
+  }
+
+  function render() {
+    const e = D.examples[current];
+    document.querySelectorAll(".chip").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.i === current)));
+    $("prompt").textContent = e.caption;
+    rolls.forEach((r) => { cancelAnimationFrame(r.raf); r.ro && r.ro.disconnect(); });
+    const keys = ORDER.filter((k) => e.runs[k]);
+    $("players").innerHTML = keys.map((k) => player(k, e.runs[k])).join("");
+    rolls = keys.map((k) => {
+      const el = $("players").querySelector(`.player[data-k="${k}"]`);
+      return new Roll(el.querySelector(".roll"), e.runs[k], el.querySelector("audio"));
+    });
+    const b = e.runs.bpe, m = e.runs.midillm;
+    const bad = keys.filter((k) => !e.runs[k].valid).map((k) => NAME[k]);
+    $("note-line").textContent = !bad.length
+      ? `For this caption, BPE ÷ MIDI-LLM throughput is ${f(b.music_s_per_inference_s / m.music_s_per_inference_s)}× (one sample each; the aggregate is below).`
+      : `The ${bad.join(" and ")} sample for this caption fails MIDI-LLM's validity check (more than 64 notes at one onset), so no per-caption ratio is given.`;
+  }
+  function select(i, push) {
+    current = Math.max(0, Math.min(D.examples.length - 1, i));
+    if (push) history.replaceState(null, "", "#" + D.examples[current].id);
+    render();
+  }
+  const fromHash = () => D.examples.findIndex((e) => "#" + e.id === location.hash);
+  window.addEventListener("hashchange", () => { const i = fromHash(); if (i >= 0 && i !== current) select(i, false); });
+  select(Math.max(0, fromHash()), false);
+
+  // ---------- generation speed ----------
+  const B = D.benchmark.main, env = B.env, des = B.design, R = B.ratios;
+  $("speed-sub").textContent = `Measured on all ${des.n_captions} captions of the test split (MIDI-LLM's evaluation set), ` +
+    `one sample per caption and model (seed ${des.seeds.join(", ")}), on one ${env.gpu} with ${env.engine} ${env.vllm}, ${env.precision}, ` +
+    `batch size ${env.batch_size}, warmed-up models, one request at a time, each model with its own sampling settings and generation limit. ` +
+    `Throughput is music seconds generated per second of inference.`;
+  const fig = (v, k) => `<div class="fig"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+  $("figs").innerHTML =
+    fig(`${f(R["bpe/midillm"])}×`, "BPE ÷ MIDI-LLM, ratio of median throughputs") +
+    fig(`${f(B.models.bpe.inference_s.median)} s vs ${f(B.models.midillm.inference_s.median)} s`, "median inference time, BPE vs MIDI-LLM");
+  const mi = (s, d = 2) => s ? `${f(s.median, d)} <span class="iqr">[${f(s.p25, d)}–${f(s.p75, d)}]</span>` : "–";
+  const mii = (s) => s ? `${int(s.median)} <span class="iqr">[${int(s.p25)}–${int(s.p75)}]</span>` : "–";
+  $("main-table").innerHTML = `<thead><tr><th>Model</th><th>Sampling</th><th>Inference s</th><th>Music s</th>
+      <th>Throughput</th><th>Tokens / s</th><th>Generated tokens</th></tr></thead><tbody>` +
+    ORDER.filter((k) => B.models[k]).map((k) => { const m = B.models[k]; return `<tr>
+      <td><span class="dot" style="--c:${DOT[k]}"></span>${NAME[k]}<br><span class="iqr">${esc(m.base_model)}</span></td>
+      <td>${samp(m.sampling)}</td><td>${mi(m.inference_s)}</td><td>${mi(m.music_s, 1)}</td><td>${mi(m.throughput)}</td>
+      <td>${mii(m.tokens_per_s)}</td><td>${mii(m.n_generated)}</td></tr>`; }).join("") + "</tbody>";
+})();
+</script>
 </body>
 </html>

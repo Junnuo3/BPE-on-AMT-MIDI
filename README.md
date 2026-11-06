@@ -11,6 +11,7 @@ compare the generated music.
 **Question.** With model, data and training recipe fixed, does applying BPE to AMT
 note tokens change the quality of caption-conditioned MIDI generation?
 
+- Listening examples, BPE vs MIDI-LLM: [demo page](https://junnuo3.github.io/BPE-on-AMT-MIDI/)
 - Checkpoints: [huggingface.co/Junnuo/BPE-on-AMT-MIDI](https://huggingface.co/Junnuo/BPE-on-AMT-MIDI)
 
 ## Representation

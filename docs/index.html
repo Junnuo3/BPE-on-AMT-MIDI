@@ -90,7 +90,7 @@ table { border-collapse: collapse; width: 100%; font-size: 0.88rem; font-variant
 th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--well-line); vertical-align: top; }
 th { font-weight: 600; color: var(--ink-soft); white-space: nowrap; font-size: 0.8rem; letter-spacing: 0.02em; }
 tr:last-child td { border-bottom: 0; }
-td .iqr { color: var(--ink-faint); font-size: 0.8rem; white-space: nowrap; }
+td .iqr { display: block; color: var(--ink-faint); font-size: 0.8rem; white-space: nowrap; }
 .mono { font-family: var(--font-mono); font-size: 0.82em; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 7px; }
 ul.tight { margin: 8px 0 0; padding-left: 20px; color: var(--ink-soft); font-size: 0.88rem; }
@@ -119,9 +119,9 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
 
   <section class="panel" aria-labelledby="speed-h">
     <h2 id="speed-h">Generation speed</h2>
-    <p class="sub" id="speed-sub"></p>
     <div class="figs" id="figs"></div>
     <div class="table-wrap"><table id="main-table"></table></div>
+    <ul class="tight" id="speed-notes"></ul>
   </section>
 
   <footer>
@@ -132,7 +132,7 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
   </footer>
 </div>
 
-<script src="site_data.js?v=db62d99e7a"></script>
+<script src="site_data.js?v=82ccba3824"></script>
 <script>
 (function () {
   const D = window.SITE_DATA;
@@ -318,12 +318,19 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
 
   // ---------- generation speed ----------
   const B = D.benchmark.main, env = B.env, des = B.design, R = B.ratios;
-  $("speed-sub").textContent = `Measured on all ${des.n_captions} captions of the test split (MIDI-LLM's evaluation set), ` +
-    `one sample per caption and model (seed ${des.seeds.join(", ")}), on one ${env.gpu} with ${env.engine} ${env.vllm}, ${env.precision}, ` +
-    `batch size ${env.batch_size}, warmed-up models, one request at a time, each model with its own sampling settings and generation limit. ` +
-    `Throughput is music seconds generated per second of inference.` +
-    ((B.merged_runs || []).length ? ` ${B.merged_runs.map((r) => NAME[r.model]).join(", ")} was measured in a later run ` +
-      `(${B.merged_runs.map((r) => r.date.slice(0, 10)).join(", ")}) with the same script, captions, seed, GPU type and software.` : "");
+  const later = B.merged_runs || [];
+  $("speed-notes").innerHTML = [
+    `<b>Setup:</b> all ${des.n_captions} captions of the test split (MIDI-LLM's evaluation set), one sample per caption and ` +
+      `model (seed ${des.seeds.join(", ")}), one ${esc(env.gpu)}, ${esc(env.engine)} ${esc(env.vllm)}, ${esc(env.precision)}, ` +
+      `batch size ${env.batch_size}, warmed-up models, one request at a time, each model with its own sampling settings and generation limit.` +
+      (later.length ? ` ${later.map((r) => NAME[r.model]).join(", ")} was measured in a later run ` +
+        `(${later.map((r) => r.date.slice(0, 10)).join(", ")}) with the same script, captions, seed, GPU type and software.` : ""),
+    `<b>Inference s:</b> time spent generating tokens for one caption (tokenizing the prompt and decoding to MIDI are not included).`,
+    `<b>Music s:</b> length of the generated piece.`,
+    `<b>Throughput:</b> music seconds generated per second of inference; the ratios above compare median throughputs.`,
+    `<b>Tokens / s</b> and <b>Generated tokens:</b> new tokens per second of inference, and new tokens per caption.`,
+    `Each cell shows the median, with the interquartile range [25th–75th percentile] below it.`,
+  ].map((s) => `<li>${s}</li>`).join("");
   const fig = (v, k) => `<div class="fig"><div class="v">${v}</div><div class="k">${k}</div></div>`;
   const M = B.models;
   $("figs").innerHTML =
@@ -336,7 +343,7 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
   $("main-table").innerHTML = `<thead><tr><th>Model</th><th>Sampling</th><th>Inference s</th><th>Music s</th>
       <th>Throughput</th><th>Tokens / s</th><th>Generated tokens</th></tr></thead><tbody>` +
     ORDER.filter((k) => B.models[k]).map((k) => { const m = B.models[k]; return `<tr>
-      <td><span class="dot" style="--c:${DOT[k]}"></span>${NAME[k]}<br><span class="iqr">${esc(m.base_model)}</span></td>
+      <td><span class="dot" style="--c:${DOT[k]}"></span>${NAME[k]}<span class="iqr">${esc(m.base_model)}</span></td>
       <td>${samp(m.sampling)}</td><td>${mi(m.inference_s)}</td><td>${mi(m.music_s, 1)}</td><td>${mi(m.throughput)}</td>
       <td>${mii(m.tokens_per_s)}</td><td>${mii(m.n_generated)}</td></tr>`; }).join("") + "</tbody>";
 })();

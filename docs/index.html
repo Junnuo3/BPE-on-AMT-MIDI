@@ -90,6 +90,7 @@ table { border-collapse: collapse; width: 100%; font-size: 0.88rem; font-variant
 th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--well-line); vertical-align: top; }
 th { font-weight: 600; color: var(--ink-soft); white-space: nowrap; font-size: 0.8rem; letter-spacing: 0.02em; }
 tr:last-child td { border-bottom: 0; }
+.nw { white-space: nowrap; }
 td .iqr { display: block; color: var(--ink-faint); font-size: 0.8rem; white-space: nowrap; }
 .mono { font-family: var(--font-mono); font-size: 0.82em; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 7px; }
@@ -132,7 +133,7 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
   </footer>
 </div>
 
-<script src="site_data.js?v=82ccba3824"></script>
+<script src="site_data.js?v=d2cac4166c"></script>
 <script>
 (function () {
   const D = window.SITE_DATA;
@@ -156,7 +157,7 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
   const f = (x, d = 2) => (x === null || x === undefined ? "–" : Number(x).toFixed(d));
   const int = (x) => (x === null || x === undefined ? "–" : Math.round(x).toLocaleString("en-US"));
   const num = (x) => (Number.isInteger(x) ? x.toFixed(1) : String(x));
-  const samp = (s) => `T ${num(s.temperature)}, top-p ${num(s.top_p)}, top-k ${s.top_k || "off"}`;
+  const samp = (s) => `<span class="nw">T ${num(s.temperature)},</span> <span class="nw">top-p ${num(s.top_p)}</span>`;
 
   // ---------- piano roll ----------
   class Roll {

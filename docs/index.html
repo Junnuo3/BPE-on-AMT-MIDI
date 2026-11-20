@@ -133,7 +133,7 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
   </footer>
 </div>
 
-<script src="site_data.js?v=d2cac4166c"></script>
+<script src="site_data.js?v=81a3c6e128"></script>
 <script>
 (function () {
   const D = window.SITE_DATA;
@@ -319,14 +319,8 @@ footer { color: var(--ink-soft); font-size: 0.84rem; text-align: center; max-wid
 
   // ---------- generation speed ----------
   const B = D.benchmark.main, env = B.env, des = B.design, R = B.ratios;
-  const later = B.merged_runs || [];
   $("speed-notes").innerHTML = [
-    `<b>Setup:</b> all ${des.n_captions} captions of the test split (MIDI-LLM's evaluation set), one sample per caption and ` +
-      `model (seed ${des.seeds.join(", ")}), one ${esc(env.gpu)}, ${esc(env.engine)} ${esc(env.vllm)}, ${esc(env.precision)}, ` +
-      `batch size ${env.batch_size}, warmed-up models, one request at a time, each model with its own sampling settings and generation limit.` +
-      (later.length ? ` ${later.map((r) => NAME[r.model]).join(", ")} was measured in a later run ` +
-        `(${later.map((r) => r.date.slice(0, 10)).join(", ")}) with the same script, captions, seed, GPU type and software.` : ""),
-    `<b>Inference s:</b> time spent generating tokens for one caption (tokenizing the prompt and decoding to MIDI are not included).`,
+    `<b>Inference s:</b> time spent generating tokens for one caption.`,
     `<b>Music s:</b> length of the generated piece.`,
     `<b>Throughput:</b> music seconds generated per second of inference; the ratios above compare median throughputs.`,
     `<b>Tokens / s</b> and <b>Generated tokens:</b> new tokens per second of inference, and new tokens per caption.`,
